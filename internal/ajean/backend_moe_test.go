@@ -426,3 +426,95 @@ func TestMoeMigrate(t *testing.T) {
 		t.Errorf("seconde passe : %v %q", err, cfg["MOE_CONFIG"])
 	}
 }
+
+func TestMoeAMDCards(t *testing.T) {
+	// une RX 9070 XT (16 Go) et un iGPU 780M (mémoire partagée, « total » = part de RAM)
+	list := []map[string]any{
+		{"name": "AMD Radeon RX 9070 XT", "total": 16384, "used": 0},
+		{"name": "AMD Radeon 780M", "total": 4096, "used": 0},
+	}
+	cards := moeAMDCards(list)
+	if len(cards) != 1 {
+		t.Fatalf("%d carte(s), attendu 1 (l'iGPU doit être exclu) : %+v", len(cards), cards)
+	}
+	if cards[0].Name != "AMD Radeon RX 9070 XT" || cards[0].VRAMGB != 16 || cards[0].Arch != 0 {
+		t.Errorf("%+v", cards[0])
+	}
+	// rien de lisible : aucune carte
+	if got := moeAMDCards(nil); len(got) != 0 {
+		t.Errorf("nil : %+v", got)
+	}
+	// nom manquant : un nom générique, sans perdre la carte
+	if got := moeAMDCards([]map[string]any{{"total": 12288}}); len(got) != 1 || got[0].Name != "AMD GPU 0" {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestMoeEngineFor(t *testing.T) {
+	if got := moeEngineFor(moeVendorNVIDIA); got != moeEngineAsset {
+		t.Errorf("nvidia : %q", got)
+	}
+	if got := moeEngineFor(moeVendorAMD); got != "compiled" {
+		t.Errorf("amd : %q", got)
+	}
+}
+
+func TestMoeEngineVendor(t *testing.T) {
+	if got := moeEngineVendor(map[string]any{"backend": "hip"}); got != moeVendorAMD {
+		t.Errorf("hip : %q", got)
+	}
+	if got := moeEngineVendor(map[string]any{"backend": "cuda"}); got != moeVendorNVIDIA {
+		t.Errorf("cuda : %q", got)
+	}
+	// clé absente (configs d'origine) : NVIDIA
+	if got := moeEngineVendor(map[string]any{}); got != moeVendorNVIDIA {
+		t.Errorf("absente : %q", got)
+	}
+}
+
+func TestMoeKFDGPUs(t *testing.T) {
+	// arbre factice : un nœud CPU (0) puis un nœud GPU (1) — 9070 XT, 16 Go,
+	// comme la topologie KFD d'une machine amdgpu sans amd-smi ni rocm-smi
+	root := t.TempDir()
+	kfd := filepath.Join(root, "class/kfd/kfd/topology/nodes")
+	mustWrite(t, filepath.Join(kfd, "0", "properties"), "simd_count 0\ngfx_target_version 0\ndrm_render_minor 128\n")
+	mustWrite(t, filepath.Join(kfd, "1", "properties"), "simd_count 128\ngfx_target_version 120001\ndrm_render_minor 129\n")
+	dev := filepath.Join(root, "class/drm/renderD129/device")
+	mustWrite(t, filepath.Join(dev, "mem_info_vram_total"), "17095983104\n")
+	mustWrite(t, filepath.Join(dev, "product_name"), "Radeon Graphics\n")
+
+	cards := moeKFDGPUs(root)
+	if len(cards) != 1 {
+		t.Fatalf("%d carte(s), attendu 1 (le nœud CPU doit être sauté) : %+v", len(cards), cards)
+	}
+	c := cards[0]
+	if c.Index != 0 || c.Name != "Radeon Graphics" || c.VRAMGB < 15.9 || c.VRAMGB > 16.1 {
+		t.Errorf("%+v", c)
+	}
+
+	// sans product_name : le nom vient de la table par arch (gfx1201)
+	root2 := t.TempDir()
+	kfd2 := filepath.Join(root2, "class/kfd/kfd/topology/nodes")
+	mustWrite(t, filepath.Join(kfd2, "1", "properties"), "simd_count 64\ngfx_target_version 120001\ndrm_render_minor 129\n")
+	dev2 := filepath.Join(root2, "class/drm/renderD129/device")
+	mustWrite(t, filepath.Join(dev2, "mem_info_vram_total"), "17095983104\n")
+	cards = moeKFDGPUs(root2)
+	if len(cards) != 1 || cards[0].Name != "AMD Radeon RX 9070 series / AI PRO R9700 (gfx1201)" {
+		t.Errorf("%+v", cards)
+	}
+
+	// topologie absente : rien
+	if got := moeKFDGPUs(t.TempDir()); got != nil {
+		t.Errorf("%+v", got)
+	}
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
