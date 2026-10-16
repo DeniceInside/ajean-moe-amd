@@ -144,6 +144,77 @@ type moeGPU struct {
 	Name   string  `json:"name"`
 	VRAMGB float64 `json:"vram_gb"`
 	Arch   int     `json:"arch"` // NVIDIA : compute capability ×10 (8.6 → 86) ; AMD : 0
+
+	// AMD : l'architecture vue par le kernel (gfx1201). Elle décide si le
+	// backend HIP du moteur se compile pour la carte (moeAMDArchs). Vide quand
+	// la source ne la donne pas (repli amd-smi/rocm-smi).
+	AMDArch string `json:"amd_arch,omitempty"`
+	// UMA : la carte est un APU à mémoire unifiée (Strix Halo). Sa « VRAM » est
+	// la mémoire partagée avec le système, pas de la GDDR.
+	UMA bool `json:"uma,omitempty"`
+	// DedicatedGB : la mémoire de la carte qui s'AJOUTE à la RAM. Un APU : son
+	// seul carve-out BIOS (sa mémoire partagée EST la RAM). Une carte dédiée :
+	// toute sa VRAM.
+	DedicatedGB float64 `json:"dedicated_gb,omitempty"`
+}
+
+// moeCardExtraGB : la mémoire de la carte qui s'ajoute à la RAM du système.
+// Compter la mémoire partagée d'un APU en plus de la RAM la compterait deux
+// fois et ferait passer un modèle qui n'y tient pas.
+func moeCardExtraGB(g moeGPU) float64 {
+	if g.UMA {
+		return g.DedicatedGB
+	}
+	return g.VRAMGB
+}
+
+// moeAMDArchsList : les architectures supportées, dans l'ordre d'affichage.
+// Source unique : la map est construite depuis cette liste, pour que le texte
+// montré à l'écran ne dérive pas de ce qui est réellement accepté.
+var moeAMDArchsList = []string{"gfx1100", "gfx1101", "gfx1102", "gfx1200", "gfx1201", "gfx1030", "gfx1031", "gfx1151"}
+
+// moeAMDArchs : les architectures pour lesquelles le backend HIP du moteur est
+// compilé (liste AMD_ARCHS de setup.py). gfx1103 n'y est qu'« opt-in » côté
+// amont (STRATA_EXPERIMENTAL_GFX1103=1) : il n'est donc pas proposé. Une carte
+// hors liste ne se compile pas — la proposer ferait échouer l'installation.
+// Le seuil de VRAM, seul, ne suffit pas : une MI300X (gfx942) a 192 Go, et le
+// carve-out BIOS d'un APU va « de 512 Mo à 96 Go » (setup.py) : les deux
+// passent un seuil de 12 Go et ne sont pas supportées.
+var moeAMDArchs = func() map[string]bool {
+	m := make(map[string]bool, len(moeAMDArchsList))
+	for _, a := range moeAMDArchsList {
+		m[a] = true
+	}
+	return m
+}()
+
+// moeAMDArchsText : la liste, en clair (la raison montrée à l'écran).
+func moeAMDArchsText() string { return strings.Join(moeAMDArchsList, ", ") }
+
+// moeAMDSupported : les cartes que ce moteur peut porter, en ordre de choix
+// (la carte DÉDIÉE d'abord — sa GDDR est plus rapide que la LPDDR5X partagée
+// d'un Strix Halo — puis la plus grosse mémoire ; le rang de l'installeur amont,
+// amd_rank). Séparée de moeDetect pour être testable sans détection.
+//
+// Une carte sans arch lisible n'est PAS proposée : on ne peut pas dire qu'elle
+// se compile, et l'installeur ferait télécharger ~68 Go pour échouer à la
+// compilation — promettre une installation qui ne tient pas est le pire des
+// deux faux (mieux vaut refuser et dire pourquoi). KFD donne toujours l'arch :
+// le cas ne vient que d'un repli muet sur ce champ.
+func moeAMDSupported(list []moeGPU) []moeGPU {
+	var ok []moeGPU
+	for _, g := range list {
+		if moeAMDArchs[g.AMDArch] {
+			ok = append(ok, g)
+		}
+	}
+	sort.SliceStable(ok, func(i, j int) bool {
+		if ok[i].UMA != ok[j].UMA {
+			return !ok[i].UMA
+		}
+		return ok[i].VRAMGB > ok[j].VRAMGB
+	})
+	return ok
 }
 
 // moeEnv : ce que l'écran d'installation doit savoir de la machine.
@@ -167,10 +238,28 @@ type moeEnv struct {
 // compilé (RTX 20).
 const moeMinArch = 75
 
-// moeMinAMDVRAMGB : la VRAM minimale d'une carte AMD pour ce moteur. 12 Go :
-// le minimum du moteur amont, qui ne démarre pas en dessous (une 8 Go comme la
-// 3070 y tient chez NVIDIA grâce au mode peu de RAM ; AMD n'a pas ce mode).
+// moeMinAMDVRAMGB : la mémoire GPU minimale d'une carte AMD pour ce moteur.
+// Le moteur amont ne pose PAS de minimum de VRAM côté AMD (son gate est la
+// liste d'architectures moeAMDArchs, et son mode « peu de RAM » ne dépend pas
+// du vendor) : ce chiffre est le choix d'ajean. Il vient de ce que le cache
+// d'experts du GPU est la VRAM moins ~5 Go (poids denses, buffers, KV) : à
+// 12 Go il reste ~7 Go d'experts sur la carte, à 8 Go à peine 3 Go — le modèle
+// se chargerait presque entièrement depuis la RAM, à une vitesse qui ne vaut
+// plus le nom de ce moteur.
 const moeMinAMDVRAMGB = 12
+
+// moeAMDListText : les cartes vues, en clair (la raison montrée à l'écran).
+func moeAMDListText(list []moeGPU) string {
+	parts := make([]string, 0, len(list))
+	for _, g := range list {
+		arch := g.AMDArch
+		if arch == "" {
+			arch = "?"
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s, %.0f Go)", g.Name, arch, g.VRAMGB))
+	}
+	return strings.Join(parts, ", ")
+}
 
 func moeDetect() moeEnv {
 	env := moeEnv{Main: -1, Helper: -1, RAMGB: totalRAMGB()}
@@ -185,17 +274,21 @@ func moeDetect() moeEnv {
 	if err != nil {
 		// AMD : le moteur tourne sur le backend HIP (moteur compilé pendant
 		// l'installation, pilote amdgpu). Une seule carte (le partage de deux
-		// cartes n'existe que côté NVIDIA), 12 Go de VRAM minimum.
+		// cartes n'existe que côté NVIDIA).
 		if amds := moeAMDGPUs(); len(amds) > 0 {
 			env.Vendor = moeVendorAMD
-			env.GPUs = amds
-			// carte principale = la plus grosse VRAM (à égalité : la première)
-			sort.SliceStable(amds, func(i, j int) bool { return amds[i].VRAMGB > amds[j].VRAMGB })
-			if amds[0].VRAMGB < moeMinAMDVRAMGB {
-				env.Reason = fmt.Sprintf("la carte %s n'a que %.0f Go de VRAM (%d Go minimum)", amds[0].Name, amds[0].VRAMGB, moeMinAMDVRAMGB)
+			ok := moeAMDSupported(amds)
+			if len(ok) == 0 {
+				env.Reason = fmt.Sprintf("aucune carte AMD supportée par ce moteur (le backend HIP se compile pour %s ; cette machine : %s)",
+					moeAMDArchsText(), moeAMDListText(amds))
 				return env
 			}
-			env.Main = amds[0].Index
+			env.GPUs = ok
+			if ok[0].VRAMGB < moeMinAMDVRAMGB {
+				env.Reason = fmt.Sprintf("la carte %s n'a que %.0f Go de mémoire pour le GPU (%d Go minimum)", ok[0].Name, ok[0].VRAMGB, moeMinAMDVRAMGB)
+				return env
+			}
+			env.Main = ok[0].Index
 			env.Visible = true
 			py, perr := moeCheckPython()
 			env.Python = py
@@ -256,12 +349,58 @@ func moeAMDGPUs() []moeGPU {
 	if cards := moeKFDGPUs("/sys"); len(cards) > 0 {
 		return cards
 	}
+	// Replis : la VRAM vient de l'outil, l'architecture de `amd-smi static`
+	// (KFD est la seule source qui donne les deux d'un coup).
+	archs := moeAMDSmiArchs()
 	for _, list := range [][]map[string]any{amdVramGPUs(), rocmVramGPUs()} {
-		if cards := moeAMDCards(list); len(cards) > 0 {
+		if cards := moeAMDCards(list, archs); len(cards) > 0 {
 			return cards
 		}
 	}
 	return nil
+}
+
+// moeAMDSmiArchs : l'architecture de chaque carte vue par `amd-smi static`
+// (asic.target_graphics_version), indexée par numéro de GPU. Le nom seul ne
+// suffit pas à décider : un iGPU s'appelle « Radeon Graphics » comme une carte
+// dédiée. Séparé pour être testable sans amd-smi installé (amdSmiArchsOf).
+func moeAMDSmiArchs() map[int]string {
+	return amdSmiArchsOf(amdSmiJSON("static"))
+}
+
+// amdSmiArchsOf : la table arch d'une sortie `amd-smi static --json` décodée.
+// La clé est target_graphics_version, une chaîne déjà formatée (« gfx1201 ») ;
+// elle vaut « N/A » quand le pilote ne la donne pas.
+func amdSmiArchsOf(static []map[string]any) map[int]string {
+	archs := map[int]string{}
+	for i, e := range static {
+		idx := amdNum(e["gpu"])
+		if idx < 0 {
+			idx = i
+		}
+		arch := amdStr(e, "asic", "target_graphics_version")
+		if strings.HasPrefix(arch, "gfx") {
+			archs[idx] = arch
+		}
+	}
+	return archs
+}
+
+// amdStr : la chaîne d'un champ imbriqué ("" si absent ou non textuel).
+func amdStr(m map[string]any, keys ...string) string {
+	var cur any = m
+	for _, k := range keys {
+		mm, ok := cur.(map[string]any)
+		if !ok {
+			return ""
+		}
+		cur, ok = mm[k]
+		if !ok {
+			return ""
+		}
+	}
+	s, _ := cur.(string)
+	return s
 }
 
 // moeAMDCards : les cartes d'une liste de télémétrie (format de l'UI, VRAM en
@@ -271,8 +410,9 @@ func moeAMDGPUs() []moeGPU {
 // Un GPU intégré (780M, iGPU d'un Ryzen) partage la RAM du système et n'a pas
 // de VRAM propre : la valeur « total » y est une part de la RAM, pas de quoi
 // démarrer ce moteur. On ne propose donc que les cartes à ≥ 8 Go de VRAM
-// dédiée (le minimum du moteur est 12 Go, vérifié dans moeDetect).
-func moeAMDCards(list []map[string]any) []moeGPU {
+// dédiée (le minimum d'ajean est 12 Go, vérifié dans moeDetect, et le gate
+// d'architecture moeAMDArchs passe avant lui).
+func moeAMDCards(list []map[string]any, archs map[int]string) []moeGPU {
 	var out []moeGPU
 	for i, g := range list {
 		total, _ := g["total"].(int)
@@ -283,7 +423,7 @@ func moeAMDCards(list []map[string]any) []moeGPU {
 		if name == "" {
 			name = fmt.Sprintf("AMD GPU %d", i)
 		}
-		out = append(out, moeGPU{Index: i, Name: name, VRAMGB: float64(total) / 1024})
+		out = append(out, moeGPU{Index: i, Name: name, VRAMGB: float64(total) / 1024, AMDArch: archs[i]})
 	}
 	return out
 }
@@ -485,16 +625,18 @@ func moeFitFor(q moeQuant, env moeEnv, haveGB float64) moeFit {
 	f.DiskGB = max(f.DiskGB-haveGB, 10)
 	// En mmap, le système garde les experts en cache tant que la RAM le permet ;
 	// au-delà, ils sont relus depuis le disque à chaque jeton : trop lent. On
-	// demande que la RAM + la VRAM des cartes couvrent au moins les experts.
-	vram := 0.0
+	// demande que la RAM + la mémoire des cartes couvrent au moins les experts.
+	// La mémoire d'un APU à mémoire unifiée (Strix Halo) est la RAM elle-même :
+	// la compter en plus de la RAM la compterait deux fois (moeCardExtraGB).
+	extra := 0.0
 	for _, g := range env.GPUs {
 		if g.Index == env.Main || g.Index == env.Helper {
-			vram += g.VRAMGB
+			extra += moeCardExtraGB(g)
 		}
 	}
 	switch {
-	case env.RAMGB+vram-12 < q.ArenaGB:
-		f.Why = fmt.Sprintf("demande plus de mémoire : %.0f Go de RAM + VRAM, il en faut ~%.0f", env.RAMGB+vram, q.ArenaGB+12)
+	case env.RAMGB+extra-12 < q.ArenaGB:
+		f.Why = fmt.Sprintf("demande plus de mémoire : %.0f Go utilisables, il en faut ~%.0f", env.RAMGB+extra, q.ArenaGB+12)
 	case env.DiskFreeGB > 0 && env.DiskFreeGB < f.DiskGB+5:
 		f.Why = fmt.Sprintf("pas assez d'espace disque : %.0f Go libres, il en faut ~%.0f", env.DiskFreeGB, f.DiskGB+5)
 	default:
