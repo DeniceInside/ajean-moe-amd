@@ -93,6 +93,12 @@ function moeRenderQuants(pickReco){
     : (fit.mmap ? t('moe.note_mmap') : t('moe.note'));
   // AMD : le moteur est compilé sur la machine (ROCm), pas téléchargé
   if(fit && !fit.active && (moeState.env||{}).vendor==='amd') note += ' ' + t('moe.note_amd');
+  // APU à mémoire unifiée (Strix Halo) : sa « VRAM » est la mémoire partagée,
+  // c'est la RAM elle-même. Sans cette note, la ligne machine (gpus + ram) se
+  // lirait comme deux mémoires qui s'ajoutent, et le chiffre affiché pour le GPU
+  // (carve-out + pool) tromperait.
+  const env = moeState.env||{}, main = (env.gpus||[]).find(g=>g.index===env.main);
+  if(fit && !fit.active && main && main.uma) note += ' ' + t('moe.note_apu');
   document.getElementById('moe-note').textContent = note;
 }
 
