@@ -88,9 +88,12 @@ function moeRenderQuants(pickReco){
   moeRenderDisk(fit);
   moeRenderSettings(fit);
   moeRenderDetails(fit);
-  document.getElementById('moe-note').textContent = !fit ? t('moe.nothing_fits')
+  let note = !fit ? t('moe.nothing_fits')
     : fit.active ? t('moe.note_active') : fit.preset ? t('moe.note_installed')
     : (fit.mmap ? t('moe.note_mmap') : t('moe.note'));
+  // AMD : le moteur est compilé sur la machine (ROCm), pas téléchargé
+  if(fit && !fit.active && (moeState.env||{}).vendor==='amd') note += ' ' + t('moe.note_amd');
+  document.getElementById('moe-note').textContent = note;
 }
 
 // Place disque : libre, ce que ce choix occupe, ce qui restera.
