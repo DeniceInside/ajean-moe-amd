@@ -1338,6 +1338,79 @@ func moePreflight(cfg map[string]string) (string, map[string]any, error) {
 // moeVenvPython : le Python de l'environnement du moteur, dans ses sources.
 func moeVenvPython(srcDir string) string { return filepath.Join(srcDir, ".venv", "bin", "python") }
 
+// moeVenvLibDirs : les dossiers de bibliothèques ROCm de l'environnement Python
+// du moteur (les wheels TheRock de l'installeur : `_rocm_sdk_devel`,
+// `_rocm_sdk_libraries_<famille>`), trouvés DANS LA SOURCE INSTALLÉE.
+// L'installeur écrit ces chemins en ABSOLU dans sa config (clé « lib_dirs ») et
+// dans engine/BUILD.json ; le binaire du moteur n'a aucun RPATH, il ne trouve
+// libhipblaslt.so.1, libhipblas.so.3 et libamdhip64.so.7 que par LD_LIBRARY_PATH.
+// Si l'environnement Python a été déplacé (le home d'installation d'origine n'est
+// plus le home courant), la config porte des dossiers qui n'existent plus : le
+// serveur du moteur écarte les chemins morts, LD_LIBRARY_PATH se retrouve vide et
+// le moteur meurt à la charge des bibliothèques.
+func moeVenvLibDirs(srcDir string) []string {
+	var out []string
+	sps, _ := filepath.Glob(filepath.Join(srcDir, ".venv", "lib", "python*", "site-packages"))
+	for _, sp := range sps {
+		devel := filepath.Join(sp, "_rocm_sdk_devel", "lib")
+		if isDir(devel) {
+			out = append(out, devel)
+		}
+		libs, _ := filepath.Glob(filepath.Join(sp, "_rocm_sdk_libraries_*", "lib"))
+		sort.Strings(libs)
+		for _, l := range libs {
+			if isDir(l) {
+				out = append(out, l)
+			}
+		}
+	}
+	return out
+}
+
+// moeRepairLibDirs : remplace la clé « lib_dirs » d'une config de l'installeur
+// par les dossiers qui existent réellement. Pure : ne touche pas au fichier.
+// Renvoie true quand la liste a changé. Les chemins morts ne sont jamais
+// réécrits dans la config d'origine (celle de l'installeur reste lisible).
+func moeRepairLibDirs(final map[string]any, srcDir string) bool {
+	var old, kept []string
+	if list, ok := final["lib_dirs"].([]any); ok {
+		for _, v := range list {
+			if s, ok := v.(string); ok {
+				old = append(old, s)
+				if isDir(s) {
+					kept = append(kept, s)
+				}
+			}
+		}
+	}
+	for _, d := range moeVenvLibDirs(srcDir) {
+		if !moeHas(kept, d) {
+			kept = append(kept, d)
+		}
+	}
+	if len(kept) == 0 || moeSameList(kept, old) {
+		return false
+	}
+	list := make([]any, len(kept))
+	for i, d := range kept {
+		list[i] = d
+	}
+	final["lib_dirs"] = list
+	return true
+}
+
+func moeSameList(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // serveMoe : la branche moteur MoE de `ajean serve`. Écrit la config finale à
 // côté de celle de l'installeur puis remplace le process par le serveur du moteur
 // (comme llama-server : systemd supervise directement le moteur).
@@ -1361,6 +1434,13 @@ func serveMoe(cfg map[string]string) error {
 	}
 	srcDir := filepath.Dir(path)
 	py := moeVenvPython(srcDir)
+	if vendor == moeVendorAMD && moeRepairLibDirs(final, srcDir) {
+		// les chemins de bibliothèques de la config ne sont pas tous réels : la
+		// config est écrite avec ceux de l'installation d'origine. Sans ce
+		// redressement le serveur du moteur écarte les dossiers morts et lance
+		// le moteur SANS LD_LIBRARY_PATH : « libhipblaslt.so.1 ... cannot open ».
+		fmt.Fprintf(os.Stderr, "[ajean serve] chemins ROCm de la config redressés sur %s\n", srcDir)
+	}
 	// Tout ce qu'ajean lance porte le nom du moteur MoE d'AJEAN : binaires,
 	// lanceur, config et journal (les noms d'origine restent dans le dossier
 	// d'installation, qu'ils ne quittent pas).

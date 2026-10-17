@@ -693,3 +693,47 @@ func mustWrite(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// Le moteur AMD meurt à la charge des bibliothèques quand la config porte les
+// chemins ROCm de l'installation d'origine (l'environnement Python a été déplacé) :
+// le serveur du moteur écarte les dossiers morts et lance sans LD_LIBRARY_PATH.
+func TestMoeRepairLibDirs(t *testing.T) {
+	// le home doit être isolé : moeHome() tombe sinon sur le home par défaut de
+	// la machine, /etc/ajean sur Linux (AJEAN_HOME est lu par AjeanHome(), et
+	// /etc/default/ajean le fixe). Un test qui écrit sous moeHome() sans isoler
+	// échoue sur le runner, non-root : « mkdir /etc/ajean: permission denied ».
+	home := t.TempDir()
+	t.Setenv("AJEAN_HOME", home)
+	srcDir := filepath.Join(moeHome(), "ajean-moe-1.1")
+	sp := filepath.Join(srcDir, ".venv", "lib", "python3.14", "site-packages")
+	for _, d := range []string{"_rocm_sdk_devel/lib", "_rocm_sdk_libraries_gfx120X_all/lib"} {
+		if err := os.MkdirAll(filepath.Join(sp, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dead := filepath.Join(home, "moe-test-home", "moe", "ajean-moe-1.1",
+		".venv", "lib", "python3.14", "site-packages", "_rocm_sdk_devel", "lib")
+	final := map[string]any{"lib_dirs": []any{dead}}
+	if !moeRepairLibDirs(final, srcDir) {
+		t.Fatal("lib_dirs non redressée")
+	}
+	got := final["lib_dirs"].([]any)
+	want := []string{filepath.Join(sp, "_rocm_sdk_devel", "lib"),
+		filepath.Join(sp, "_rocm_sdk_libraries_gfx120X_all", "lib")}
+	if len(got) != len(want) {
+		t.Fatalf("lib_dirs : %v", got)
+	}
+	for i, d := range want {
+		if got[i] != d {
+			t.Errorf("lib_dirs %d : %v (attendu %s)", i, got[i], d)
+		}
+	}
+	// déjà bonne : seconde passe ne change rien
+	if moeRepairLibDirs(final, srcDir) {
+		t.Errorf("seconde passe modifie la config : %v", final["lib_dirs"])
+	}
+	// aucun environnement Python : on garde la liste telle quelle
+	if moeRepairLibDirs(final, filepath.Join(home, "moe", "ajean-moe-9.9")) {
+		t.Error("sans venv, la config est modifiée")
+	}
+}
