@@ -189,11 +189,11 @@ the reply bubble. `ajean wol check <ip>` lists the three things to enable on the
 
 The modal's **Test connection** button helps with this, without ever waking a machine on its own:
 on an unreachable machine it says it may be powered off and offers the magic packet; on a closed
-port it says the machine is on and the engine is what must be started. And when the test
-**succeeds**, the machine has just been reached: its MAC is readable in the ARP table and gets
-prefilled in the field — no need to look it up. A MAC you typed yourself is never replaced, and
-nothing is offered for an address off the network (local, or an online service: the ARP table only
-holds your gateway there).
+port it says the machine is on and the engine is what must be started. And as soon as the machine has **answered** — test succeeded, port closed, or an error reply — it
+is on and its MAC is readable in the ARP table: it gets prefilled in the field, no need to look it
+up. A MAC you typed yourself is never replaced, and no magic packet is ever offered for an address
+off the network (a local address, or an online service: the ARP table there only holds your
+gateway).
 
 ### Engine
 

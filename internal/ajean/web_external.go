@@ -190,19 +190,30 @@ func handlePresetExternalTest(w http.ResponseWriter, r *http.Request) {
 		// c'est une machine éteinte. Le message porte alors la proposition
 		// d'envoyer le paquet magique ; c'est le clic sur le bouton qui l'envoie.
 		if host, _, herr := wolHostPort(req.URL); herr == nil {
-			switch wolWakeHint(err, host, req.WOL, req.WOLMAC) {
+			switch wolWakeHint(err, host, req.WOL) {
 			case wolHintWake:
 				// Injoignable : la machine est peut-être éteinte. Le bouton du
 				// paquet magique est au-dessus du test, la modale est ouverte sur
-				// le bloc WOL — on le nomme, on n'envoie rien.
-				out["wol"] = true
+				// le bloc WOL — on le nomme, on n'envoie rien. La proposition
+				// d'envoyer exige une MAC : sans elle, le message le dit.
 				out["detail"] = err.Error()
-				out["error"] = fmt.Sprintf("%s ne répond pas : la machine est peut-être éteinte, envoie le paquet magique puis relance le test", host)
+				if wolCanProposeWake(req.WOLMAC) {
+					out["wol"] = true
+					out["error"] = fmt.Sprintf("%s ne répond pas : la machine est peut-être éteinte, envoie le paquet magique puis relance le test", host)
+				} else {
+					out["error"] = fmt.Sprintf("%s ne répond pas : la machine est peut-être éteinte — donnez sa MAC, puis envoyez le paquet magique", host)
+				}
 			case wolHintPort:
 				// Refus de connexion = RST de la MACHINE : elle est allumée, c'est
-				// l'API qui manque. Un paquet magique n'y changerait rien.
+				// l'API qui manque. Un paquet magique n'y changerait rien. Mais la
+				// machine a répondu : sa MAC est dans la table ARP, et c'est le cas
+				// le plus fréquent à la création d'un preset (moteur pas encore
+				// lancé) — donc on l'apprend ici aussi.
 				out["detail"] = err.Error()
 				out["error"] = fmt.Sprintf("%s est allumée mais ne sert rien sur ce port : démarre l'API (llama-server / moteur MoE), le Wake on LAN n'y change rien", host)
+				if mac := extLearnedMAC(req, host); mac != "" {
+					out["wol_mac"] = mac
+				}
 			}
 		}
 		sendJSON(w, 200, out)
@@ -218,21 +229,43 @@ func handlePresetExternalTest(w http.ResponseWriter, r *http.Request) {
 		if msg == "" {
 			msg = resp.Status
 		}
-		sendJSON(w, 200, map[string]any{"ok": false, "status": resp.StatusCode, "error": msg})
+		errOut := map[string]any{"ok": false, "status": resp.StatusCode, "error": msg}
+		// La machine a RÉPONDU (une réponse HTTP, même une erreur : 401 = clé
+		// mauvaise, machine allumée) : sa MAC est apprenable, et c'est le cas
+		// classique à la création du preset.
+		if mac := extLearnedMAC(req, hostOf(req.URL)); mac != "" {
+			errOut["wol_mac"] = mac
+		}
+		sendJSON(w, 200, errOut)
 		return
 	}
 	out := map[string]any{"ok": true}
-	// Test RÉUSSI = la machine est allumée et vient d'être jointe : la résolution
-	// ARP de l'instant a rempli la table. C'est LE moment où sa MAC est lisible,
-	// donc le moment où on peut l'apprendre à l'utilisateur. Le réveil coché et la
-	// MAC absente sont requis : une MAC déjà saisie n'est jamais écrasée, elle est
-	// ce que l'utilisateur a lu sur la machine, et c'est plus sûr qu'une table ARP.
-	if req.WOL && strings.TrimSpace(req.WOLMAC) == "" {
-		if mac, err := wolMACForHost(hostOf(req.URL)); err == nil && mac != "" {
-			out["wol_mac"] = mac
-		}
+	if mac := extLearnedMAC(req, hostOf(req.URL)); mac != "" {
+		out["wol_mac"] = mac
 	}
 	sendJSON(w, 200, out)
+}
+
+// extLearnedMAC : la MAC à apprendre de la cible de ce preset, quand la machine a
+// RÉPONDU (test réussi, réponse HTTP en erreur, port refusé). La réponse est la
+// condition : elle prouve que la machine est allumée et que la résolution ARP de
+// l'instant a rempli la table. Une machine injoignable n'y est pas — rien n'est
+// appris dans ce cas, et c'est celui où l'on propose le paquet magique.
+//
+// Rend une MAC vide, sans bruit, si : le réveil n'est pas coché ; une MAC est déjà
+// saisie (celle que l'utilisateur a lue sur la machine est plus sûre qu'une table
+// ARP, elle n'est JAMAIS écrasée) ; la cible n'est pas une IP de LAN (une adresse
+// publique port-forcée a une entrée ARP qui est celle du routeur ; la boucle
+// locale, c'est cette machine) ; la table ne la contient pas.
+func extLearnedMAC(req externalSaveReq, host string) string {
+	if !req.WOL || strings.TrimSpace(req.WOLMAC) != "" || host == "" {
+		return ""
+	}
+	mac, err := wolMACForHost(host)
+	if err != nil {
+		return ""
+	}
+	return mac
 }
 
 // hostOf : l'hôte de l'URL, vide si elle est illisible.

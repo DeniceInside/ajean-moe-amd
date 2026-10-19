@@ -524,24 +524,35 @@ const (
 //	wolHintNone : le reste (TLS, HTTP, DNS, URL). Un échec TLS prouve qu'un service
 //	          écoute : la machine est allumée, le WOL n'a rien à faire ici.
 //
-// Le réveil coché et une MAC saisie sont requis : sans eux, rien n'est proposé.
-func wolWakeHint(err error, host string, wolOn bool, mac string) int {
+// Le réveil COCHÉ est requis : sans lui, rien n'est branché sur le réveil. La MAC,
+// elle, n'est PAS requise par le diagnostic : c'est justement quand on n'en a pas
+// qu'on teste la connexion. La proposition d'envoyer la trame, elle, l'exige — sans
+// MAC, il n'y a rien à envoyer (voir wolCanProposeWake).
+func wolWakeHint(err error, host string, wolOn bool) int {
 	if err == nil || !wolOn {
 		return wolHintNone
 	}
-	if _, err := wolNormalizeMAC(mac); err != nil || mac == "" {
-		return wolHintNone
-	}
+	// Le DIAGNOSTIC se pose sur une adresse locale au sens de wolGuard (LAN,
+	// boucle locale) : « démarre l'API » sert aussi pour un moteur local non lancé.
+	// Une adresse publique rend un réglage local absurde : rien n'est dit.
 	if wolGuard(host) != nil {
-		return wolHintNone // pas une IP privée du LAN : pas de trame possible
+		return wolHintNone
 	}
 	var operr *net.OpError
 	if !errors.As(err, &operr) {
 		return wolHintNone
 	}
-	switch {
-	case errors.Is(operr, syscall.ECONNREFUSED):
+	if errors.Is(operr, syscall.ECONNREFUSED) {
 		return wolHintPort
+	}
+	// « Éteinte » ne se dit que d'une machine qui n'est PAS celle qui pose la
+	// question : boucle locale et adresses de cette machine sont allumées par
+	// définition, et une adresse routée ne répond pas parce qu'elle est hors
+	// liaison, pas parce qu'elle dort.
+	if !wolCanTargetWake(host) {
+		return wolHintNone
+	}
+	switch {
 	case errors.Is(operr, syscall.EHOSTUNREACH), errors.Is(operr, syscall.ENETUNREACH):
 		return wolHintWake
 	}
@@ -550,6 +561,31 @@ func wolWakeHint(err error, host string, wolOn bool, mac string) int {
 		return wolHintWake
 	}
 	return wolHintNone
+}
+
+// wolCanTargetWake : une cible dont la panne peut être un réveil qui manque. Une
+// IPv4 de LAN, en unicast, qui n'est PAS cette machine. wolGuard est plus large
+// (il accepte la boucle locale, pour qu'un preset de localhost se teste) ; ici la
+// boucle locale et les adresses de cette machine rendent « éteinte » absurde :
+// c'est la machine qui pose la question.
+func wolCanTargetWake(rawHost string) bool {
+	ip := net.ParseIP(strings.TrimSpace(rawHost))
+	v4 := ip.To4()
+	if v4 == nil || !v4.IsPrivate() {
+		return false
+	}
+	return !v4.IsLoopback() && !wolIsLocalIP(v4)
+}
+
+// wolCanProposeWake : la proposition d'envoyer le paquet magique, elle, exige une
+// MAC valide. Sans elle, il n'y a rien à envoyer : le diagnostic reste, la
+// proposition disparaît.
+func wolCanProposeWake(mac string) bool {
+	if strings.TrimSpace(mac) == "" {
+		return false
+	}
+	_, err := wolNormalizeMAC(mac)
+	return err == nil
 }
 
 // wolFriendlyError : le texte vu dans la bulle de chat. La ligne utile est celle

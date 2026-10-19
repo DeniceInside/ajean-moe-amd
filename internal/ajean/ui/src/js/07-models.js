@@ -1086,22 +1086,22 @@ async function testExternalPreset(){
   st.textContent = t('external.testing');
   try{
     const r = await jpost('/api/preset/external/test', b);
-    if(r.ok){
-      // Test réussi = machine allumée et jointe à l'instant : le serveur a pu lire
-      // sa MAC dans la table ARP. On la préremplit (le champ et la clé), et on le
-      // dit. Jamais sur une MAC déjà saisie : ce que l'utilisateur a lu sur la
-      // machine reste ce qu'il y a de plus sûr.
-      if(r.wol_mac){
-        const m = document.getElementById('s-ext-wol-mac');
-        if(m){ m.value = r.wol_mac; }
-        cfgWriteKey('WOL_MAC', r.wol_mac);
-        return st.textContent = '✓ '+t('external.test_ok')+' · '+t('wol.mac_learned').replace('{mac}', r.wol_mac);
-      }
-      return st.textContent = '✓ '+t('external.test_ok');
+    // Test réussi, port refusé, réponse HTTP en erreur : la machine a RÉPONDU, donc
+    // le serveur a pu lire sa MAC dans la table ARP. On la préremplit (le champ et
+    // la clé), et on le dit. Jamais sur une MAC déjà saisie : ce que l'utilisateur a
+    // lu sur la machine reste ce qu'il y a de plus sûr.
+    const learned = r.wol_mac ? ' · '+t('wol.mac_learned').replace('{mac}', r.wol_mac) : '';
+    if(r.wol_mac){
+      const m = document.getElementById('s-ext-wol-mac');
+      if(m){ m.value = r.wol_mac; }
+      cfgWriteKey('WOL_MAC', r.wol_mac);
     }
-    // Réveil proposé : on rappelle le bouton, la modale est ouverte sur le bloc WOL.
+    if(r.ok){ return st.textContent = '✓ '+t('external.test_ok')+learned; }
+    // Réveil proposé (machine injoignable) : on rappelle le bouton, la modale est
+    // ouverte sur le bloc WOL. Pas de MAC apprise dans ce cas : une machine
+    // injoignable n'est pas dans la table ARP.
     if(r.wol){ return st.textContent = '⚠ '+(r.error || t('wol.test_wake')); }
-    st.textContent = '⚠ '+(r.error || t('external.test_failed'));
+    st.textContent = '⚠ '+(r.error || t('external.test_failed'))+learned;
   }catch(e){ st.textContent = '⚠ '+t('external.test_failed'); }
 }
 // Comptes Modal = profils de la CLI sur la machine AJEAN. Vide = profil actif.
