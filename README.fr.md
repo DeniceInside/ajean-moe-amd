@@ -188,6 +188,14 @@ statut et dans la bulle de réponse. `ajean wol check <ip>` rappelle les trois c
 la machine à réveiller (BIOS, pilote, arrêt complet) — c'est là que le Wake-on-LAN échoue, et
 AJEAN ne peut pas les régler à distance.
 
+Le bouton **Tester la connexion** de la modale vous y aide, sans jamais réveiller de son propre
+chef : sur une machine injoignable il dit qu'elle est peut-être éteinte et propose le paquet
+magique ; sur un port fermé il dit que la machine est allumée et que c'est le moteur à démarrer.
+Et quand le test **réussit**, la machine vient d'être jointe : sa MAC est lisible dans la table
+ARP, elle est préremplie dans le champ — vous n'avez pas à la chercher. Une MAC que vous avez
+saisie vous-même n'est jamais remplacée, et rien n'est proposé sur une adresse hors du réseau
+(local, ou un service en ligne : la table ARP n'y donne que votre box).
+
 ### Moteur
 
 La section **Moteur** installe et met à jour llama.cpp en trois variantes, choisies par preset :
