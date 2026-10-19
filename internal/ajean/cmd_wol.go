@@ -304,12 +304,20 @@ func wolLocalWakeSetting() (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("%s (lecture du pilote : %s)", strings.TrimSpace(string(out)), err)
 	}
+	return wolParseWakeOn(out)
+}
+
+// wolParseWakeOn lit le réglage de réveil dans une sortie d'ethtool. Analyse pure,
+// sans dépendre de la plateforme ni d'un binaire : c'est elle qui est testée, et
+// wolLocalWakeSetting n'est que la porte d'accès (Linux, ethtool, root).
+func wolParseWakeOn(out []byte) (bool, error) {
 	for _, line := range strings.Split(string(out), "\n") {
 		if !strings.Contains(strings.ToLower(line), "wake-on") {
 			continue
 		}
 		// "Wake-on: g" = armé pour le paquet magique ; "Wake-on: d" = désarmé.
-		after := strings.TrimSpace(line[strings.Index(strings.ToLower(line), "wake-on")+len("wake-on"):])
+		low := strings.ToLower(line)
+		after := strings.TrimSpace(line[strings.Index(low, "wake-on")+len("wake-on"):])
 		after = strings.TrimSpace(strings.TrimPrefix(after, ":"))
 		// Les drapeaux sont un ENSEMBLE DE LETTRES COLLÉES, pas des mots : « d »
 		// désarmé, « g » paquet magique, « u » unicast, « b » broadcast, « a » ARP.

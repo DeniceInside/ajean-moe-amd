@@ -3,6 +3,7 @@ package ajean
 import (
 	"errors"
 	"net"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -134,33 +135,61 @@ func TestWOLSendNeedsAMAC(t *testing.T) {
 	}
 }
 
-// Le réglage de réveil du pilote local : la lecture d'ethtool, avec ses deux
-// états. (L'écriture n'existe pas dans AJEAN : c'est le réglage de la machine,
-// et elle exige root.)
-func TestWOLLocalWakeSettingReadsEthtool(t *testing.T) {
+// Le réglage de réveil du pilote : l'ANALYSE de la sortie d'ethtool, seule chose
+// portable et donc testable partout. (Un runner macOS n'a ni ethtool ni interface
+// privée : y appeler la lecture réelle rend le test rouge là-bas, et c'est ce qui
+// s'est passé au premier run de CI. La porte d'accès, elle, est testée séparément.)
+func TestWOLWakeOnFlagsParsing(t *testing.T) {
 	testHome(t)
-	defer restoreWOLHooks()
-	cases := map[string]bool{
-		"eth0: ethtool\n\tSettings for eth0:\n\tSupported ports: [ TP ]\n\tWake-on: g\n": true,
-		"eth0: ethtool\n\tWake-on: d\n":              false,
-		"eth0: ethtool\n\tWake-on: dg\n":             true,
-		"eth0: ethtool\n\tSupported ports: [ TP ]\n": false,
+	cases := []struct {
+		out  string
+		want bool
+		ok   bool // ok=false : la sortie ne dit rien du réveil → une erreur
+	}{
+		{"eth0: ethtool\n\tSettings for eth0:\n\tSupported ports: [ TP ]\n\tWake-on: g\n", true, true},
+		{"eth0: ethtool\n\tWake-on: d\n", false, true},
+		{"eth0: ethtool\n\tWake-on: dg\n", true, true},
+		{"eth0: ethtool\n\tWake-on: dgu\n", true, true},
+		{"eth0: ethtool\n\tCurrent message level:\n\tWake-on: (g)\n", true, true},
+		{"eth0: ethtool\n\tSupported ports: [ TP ]\n", false, false},
 	}
-	for out, want := range cases {
-		wolRunEthtool = func(string) ([]byte, error) { return []byte(out), nil }
-		on, err := wolLocalWakeSetting()
-		if err != nil {
-			if want == false && strings.Contains(out, "Wake-on") {
-				t.Errorf("sortie %q : %v (attendu lu)", out, err)
+	for _, c := range cases {
+		on, err := wolParseWakeOn([]byte(c.out))
+		if !c.ok {
+			if err == nil {
+				t.Errorf("sortie %q : aucune erreur, attendu une erreur (ne pas inventer un état)", c.out)
 			}
 			continue
 		}
-		if on != want {
-			t.Errorf("sortie %q : wake-on = %v, attendu %v", out, on, want)
+		if err != nil {
+			t.Errorf("sortie %q : %v (attendu lu : %v)", c.out, err, c.want)
+			continue
+		}
+		if on != c.want {
+			t.Errorf("sortie %q : wake-on = %v, attendu %v", c.out, on, c.want)
 		}
 	}
-	// ethtool en échec (non-root : « Operation not permitted ») : une erreur, pas
-	// un « désarmé » qui ferait croire à un réglage à changer.
+}
+
+// La porte d'accès au pilote local : Linux lit via ethtool, les autres systèmes
+// rendent une erreur qui DONNE la commande à faire à la main. Un échec de lecture
+// (non-root) rend une erreur, jamais un faux « désarmé » qui ferait croire à un
+// réglage à changer.
+func TestWOLLocalWakeSettingGateIsPerOS(t *testing.T) {
+	testHome(t)
+	defer restoreWOLHooks()
+	wolRunEthtool = func(string) ([]byte, error) { return []byte("Wake-on: g\n"), nil }
+	on, err := wolLocalWakeSetting()
+	if runtime.GOOS == "linux" {
+		t.Logf("linux : wake-on lu = %v (%v) — selon les droits de l'appelant", on, err)
+	} else {
+		if err == nil {
+			t.Errorf("%s : une lecture de pilote est annoncée, attendu une erreur qui donne la commande à faire", runtime.GOOS)
+		}
+		if !strings.Contains(err.Error(), runtime.GOOS) {
+			t.Errorf("message d'erreur = %q, attendu qu'il nomme le système", err)
+		}
+	}
 	wolRunEthtool = func(string) ([]byte, error) {
 		return []byte("netlink error: Operation not permitted"), errors.New("exit status 1")
 	}
