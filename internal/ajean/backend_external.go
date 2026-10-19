@@ -25,11 +25,12 @@ const (
 
 // chatEndpoint : où partent les appels /v1/chat/completions de ce tour.
 type chatEndpoint struct {
-	URL      string // URL complète des complétions
-	Model    string // nom de modèle envoyé dans le payload
-	Key      string // Bearer ("" = aucun)
-	External bool   // true = API distante (pas le llama-server local)
-	Cloud    bool   // true = GPU cloud Modal (attente du réveil sur 503)
+	URL      string    // URL complète des complétions
+	Model    string    // nom de modèle envoyé dans le payload
+	Key      string    // Bearer ("" = aucun)
+	External bool      // true = API distante (pas le llama-server local)
+	Cloud    bool      // true = GPU cloud Modal (attente du réveil sur 503)
+	WOL      wolTarget // réveil Wake on LAN de la cible (MAC vide = pas de réveil)
 }
 
 // isExternalConfig indique si une configuration décrit un endpoint externe.
@@ -78,11 +79,13 @@ func resolveChatEndpoint() chatEndpoint {
 		return cloudEndpoint(cfg)
 	}
 	if isExternalConfig(cfg) {
+		tt, _ := wolOf(cfg) // un preset du LAN peut nommer la MAC de sa cible (backend_wol.go)
 		return chatEndpoint{
 			URL:      completionsURL(cfg[extKeyURL]),
 			Model:    strings.TrimSpace(cfg[extKeyModel]),
 			Key:      strings.TrimSpace(cfg[extKeyToken]),
 			External: true,
+			WOL:      tt,
 		}
 	}
 	return chatEndpoint{
@@ -98,6 +101,18 @@ func resolveChatEndpoint() chatEndpoint {
 // de contexte) est stocké dans la clé CTX standard — elle pilote la jauge de
 // contexte et le seuil de compaction, comme pour un preset local.
 func externalPresetContent(url, model, key, ctx string, vision bool) string {
+	return externalPresetContentWOL(url, model, key, ctx, vision, wolKeys{})
+}
+
+// wolKeys : la déclaration de réveil d'un preset externe (voir backend_wol.go).
+type wolKeys struct {
+	Enabled bool
+	MAC     string
+	Port    string
+	Wait    string
+}
+
+func externalPresetContentWOL(url, model, key, ctx string, vision bool, w wolKeys) string {
 	m := map[string]string{
 		extKeyFlag:  "1",
 		extKeyURL:   strings.TrimSpace(url),
@@ -111,6 +126,22 @@ func externalPresetContent(url, model, key, ctx string, vision bool) string {
 	}
 	if vision {
 		m[extKeyVision] = "1"
+	}
+	// Réveil Wake on LAN : la MAC est normalisée (les utilitaires du LAN la
+	// rendent avec deux-points, avec tirets, ou sans séparateur), et une clé
+	// vide n'est pas écrite. WOL=1 sans MAC valide n'est PAS écrit : un preset
+	// incomplet ne doit pas promettre un réveil qu'il ne peut pas faire.
+	if w.Enabled {
+		if mac, err := wolNormalizeMAC(w.MAC); err == nil {
+			m[wolKeyFlag] = "1"
+			m[wolKeyMAC] = mac
+			if p := strings.TrimSpace(w.Port); p != "" {
+				m[wolKeyPort] = p
+			}
+			if v := strings.TrimSpace(w.Wait); v != "" {
+				m[wolKeyWait] = v
+			}
+		}
 	}
 	return formatEnv(m)
 }

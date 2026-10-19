@@ -211,6 +211,12 @@ function paintGenStatus(){
   if(tok===0 && CLOUD_PHASE && CLOUD_PHASE!=='ready'){
     extra=t(CLOUD_PHASE==='downloading' ? 'chat.cloud_downloading' : CLOUD_PHASE==='loading' ? 'chat.cloud_loading' : 'chat.cloud_waking');
   }
+  // PC du LAN éteint : le paquet magique est parti, on attend qu'il démarre et
+  // que le moteur charge. Une minute d'attente sans explication, c'est un chat
+  // qui paraît cassé. Le temps écoulé est affiché (WOL_DETAIL vient du serveur).
+  if(tok===0 && WOL_PHASE && WOL_PHASE!=='ready'){
+    extra=t('chat.wol_waking')+(WOL_DETAIL ? ' · '+WOL_DETAIL : '');
+  }
   paintGenParts(txt, genItems(secs, tok, tok>0?genRate():null, activePresetName(), extra));
   scrollMaybe();
 }

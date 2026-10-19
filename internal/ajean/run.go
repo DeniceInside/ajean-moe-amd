@@ -64,6 +64,8 @@ func Main() {
 		mustExit(cmdGPU(args))
 	case "network":
 		mustExit(cmdNetwork(args))
+	case "wol":
+		mustExit(cmdWOL(args))
 	case "switch":
 		mustExit(cmdSwitch(args))
 	case "chat":
@@ -137,6 +139,9 @@ Moteur (ajean-engine) :
   set-api-key [clé]             protéger llama-server (clé Bearer); vide = générer, "" = retirer
   network [on|off|status]       rendre l'endpoint OpenAI joignable depuis le réseau local
                                 (HOST + règle de pare-feu sous Windows)
+  wol [<MAC>] [-ip <ip>]        réveiller une machine du LAN par paquet magique (Wake on LAN)
+  wol list                      les MAC vues sur le LAN, à recopier dans un preset externe
+  wol check [ip]                ce qui doit être activé sur la machine à réveiller (BIOS, pilote)
 
 Interface (ajean-ui) :
   ui [start|stop|restart|status]  pilote le service d'interface

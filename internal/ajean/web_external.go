@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -43,6 +44,12 @@ func handlePresetExternal(w http.ResponseWriter, r *http.Request) {
 		"ctx":    strings.TrimSpace(cfg["CTX"]),
 		"vision": strings.TrimSpace(cfg[extKeyVision]) == "1",
 		"hasKey": strings.TrimSpace(cfg[extKeyToken]) != "",
+		// Réveil Wake on LAN : la MAC n'est pas un secret (elle s'obtient par ARP
+		// sur le LAN), elle est donc renvoyée pour préremplir la modale.
+		"wol":      strings.TrimSpace(cfg[wolKeyFlag]) == "1",
+		"wol_mac":  strings.TrimSpace(cfg[wolKeyMAC]),
+		"wol_port": strings.TrimSpace(cfg[wolKeyPort]),
+		"wol_wait": strings.TrimSpace(cfg[wolKeyWait]),
 	})
 }
 
@@ -58,6 +65,10 @@ type externalSaveReq struct {
 	Ctx        string `json:"ctx"`        // taille de contexte (clé CTX), optionnelle
 	Vision     bool   `json:"vision"`     // le modèle distant accepte les images
 	KeyTouched bool   `json:"keyTouched"` // l'utilisateur a modifié le champ clé
+	WOL        bool   `json:"wol"`        // réveiller la cible (Wake on LAN)
+	WOLMAC     string `json:"wol_mac"`    // MAC de la machine du LAN
+	WOLPort    string `json:"wol_port"`   // port UDP de la trame ("" = 7)
+	WOLWait    string `json:"wol_wait"`   // secondes d'attente du port ("" = 90)
 }
 
 func handlePresetExternalSave(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +100,24 @@ func handlePresetExternalSave(w http.ResponseWriter, r *http.Request) {
 			key = strings.TrimSpace(parseEnv(content)[extKeyToken])
 		}
 	}
-	content := externalPresetContent(req.URL, req.Model, key, req.Ctx, req.Vision)
+	// Réveil Wake on LAN : une MAC exigée si l'interrupteur est posé, et une cible
+	// qui n'est PAS du LAN refusée. Un preset API publique (OpenAI, Groq…) avec
+	// WOL=1 enverrait un paquet magique sur la diffusion LOCALE de la machine qui
+	// fait tourner AJEAN — vers des machines qui n'ont rien à voir avec la cible.
+	wol := wolKeys{Enabled: req.WOL, MAC: req.WOLMAC, Port: req.WOLPort, Wait: req.WOLWait}
+	if req.WOL {
+		mac, err := wolNormalizeMAC(req.WOLMAC)
+		if err != nil {
+			sendJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		wol.MAC = mac
+		if h, _, err := wolHostPort(req.URL); err != nil || wolGuard(h) != nil {
+			sendJSON(w, 200, map[string]any{"ok": false, "error": "le Wake on LAN demande une adresse de LAN dans l'URL de l'API (l'URL actuelle n'en est pas une)"})
+			return
+		}
+	}
+	content := externalPresetContentWOL(req.URL, req.Model, key, req.Ctx, req.Vision, wol)
 	// Réglages de MACHINE repris dans le preset : sans eux, la bascule vers ce
 	// preset effaçait BIN de la config vive (voir externalMachineKeys).
 	content = externalPresetWithMachine(content, externalMachineKeys(req.ID))
@@ -182,4 +210,59 @@ func extractAPIError(b []byte) string {
 		return strings.TrimSpace(e.Error.Message)
 	}
 	return ""
+}
+
+// handlePresetExternalWOL — POST /api/preset/external/wol : envoyer le paquet
+// magique sur DEMANDE EXPLICITE (le bouton de la modale, « envoyer le paquet
+// magique »), et dire ce qui s'est passé. C'est le seul chemin de l'interface qui
+// réveille : la sonde de santé, elle, ne réveille jamais (wolActive n'existe que
+// pour afficher un réveil déjà en vol, lancé par une requête de chat).
+//
+// La cible est l'IP de l'URL du preset, ou celle saisie pour le test. Le garde-fou
+// d'adresse s'applique ici comme partout : une IP publique, un nom, refusés.
+type wolSendReq struct {
+	MAC  string `json:"mac"`
+	IP   string `json:"ip"`   // cible du test ; vide = l'hôte de l'URL saisie
+	URL  string `json:"url"`  // l'URL de la modale : c'est elle qui donne le port du service
+	Port string `json:"port"` // port UDP de la trame (7 par défaut)
+	Wait string `json:"wait"` // secondes d'attente du port
+}
+
+func handlePresetExternalWOL(w http.ResponseWriter, r *http.Request) {
+	var req wolSendReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	mac, err := wolNormalizeMAC(req.MAC)
+	if err != nil {
+		sendJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	// L'URL de la modale donne le port du service à attendre ; le champ IP, quand
+	// il est rempli, teste une AUTRE machine du LAN avec ce même port.
+	_, port, uerr := wolHostPort(req.URL)
+	host := strings.TrimSpace(req.IP)
+	if host == "" {
+		h, _, err := wolHostPort(req.URL)
+		if err != nil {
+			sendJSON(w, 200, map[string]any{"ok": false, "error": "IP de la cible requise (l'URL de l'API ne la donne pas)"})
+			return
+		}
+		host = h
+	}
+	if host != "" && port == "" {
+		port = "8080"
+	}
+	_ = uerr
+	tt, _ := wolOf(map[string]string{wolKeyFlag: "1", wolKeyMAC: mac, wolKeyPort: req.Port, wolKeyWait: req.Wait})
+	if tt.MAC == "" {
+		sendJSON(w, 200, map[string]any{"ok": false, "error": "MAC invalide"})
+		return
+	}
+	if err := wakeWOL(r.Context(), host, port, tt); err != nil {
+		sendJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	sendJSON(w, 200, map[string]any{"ok": true, "detail": fmt.Sprintf("%s · %s · %s", host, mac, tt.MAC)})
 }

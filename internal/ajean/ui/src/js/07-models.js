@@ -1046,7 +1046,31 @@ function syncRunMode(){
     document.getElementById('s-ext-ctx').value = cfgReadKey('CTX');
     document.getElementById('s-ext-vision').checked = cfgReadKey('EXTERNAL_VISION') === '1';
     document.getElementById('s-ext-status').textContent = '';
+    // Wake on LAN : le réveil du PC du LAN qui sert l'API (backend_wol.go).
+    const wolOn = cfgReadKey('WOL') === '1';
+    document.getElementById('s-ext-wol').checked = wolOn;
+    document.getElementById('s-ext-wol-mac').value = cfgReadKey('WOL_MAC');
+    document.getElementById('s-ext-wol-wait').value = cfgReadKey('WOL_WAIT');
+    document.getElementById('s-ext-wol-status').textContent = '';
+    setWOLBody(wolOn);
   }
+}
+// Le bloc Wake on LAN s'ouvre avec l'interrupteur : une MAC et une attente.
+function setWOLBody(on){
+  const b = document.getElementById('m-wol-body');
+  if(b) b.style.display = on ? '' : 'none';
+}
+// Envoi manuel du paquet magique : le seul chemin qui réveille, et il part sur
+// demande explicite. Le corps de la requête, lui, réveille tout seul (voir doLLM).
+async function sendWOLPacket(){
+  const st = document.getElementById('s-ext-wol-status');
+  const mac = cfgReadKey('WOL_MAC'), ip = document.getElementById('s-ext-wol-check').value.trim();
+  if(!mac){ st.textContent = t('wol.mac_required'); return; }
+  st.textContent = t('wol.sending');
+  try{
+    const r = await jpost('/api/preset/external/wol', {mac, ip, url: cfgReadKey('EXTERNAL_URL'), port: cfgReadKey('WOL_PORT'), wait: cfgReadKey('WOL_WAIT')});
+    st.textContent = r.ok ? '✓ '+(r.detail || t('wol.sent')) : '⚠ '+(r.error || t('wol.send_failed'));
+  }catch(e){ st.textContent = '⚠ '+t('wol.send_failed'); }
 }
 // Test d'un preset API externe : une complétion d'un jeton vers l'API saisie.
 async function testExternalPreset(){

@@ -178,6 +178,16 @@ Un preset ne tourne pas forcément sur cette machine :
 | **API externe** | n'importe quel point d'accès compatible OpenAI |
 | **GPU Cloud** | un GPU loué sur [Modal](https://modal.com) (du T4 au B200), déployé par AJEAN, facturé à l'usage, mis en veille quand il ne sert pas |
 
+**Réveiller le PC du réseau (Wake on LAN).** Un preset API externe pointe souvent sur un autre
+ordinateur de la maison ou du bureau, qui sert le moteur — et il est parfois éteint. Cochez
+**Réveiller ce PC** dans la modale API Externe et donnez sa MAC (`ajean wol list` vous la propose),
+et le premier message d'une session éteinte envoie le paquet magique, attend que la machine démarre
+et que le moteur charge, puis rejoue la requête : le chat répond, vous n'avez rien à renvoyer. Une
+vérification de santé, elle, ne réveille jamais. La phase du réveil s'affiche dans la bulle de
+statut et dans la bulle de réponse. `ajean wol check <ip>` rappelle les trois choses à activer sur
+la machine à réveiller (BIOS, pilote, arrêt complet) — c'est là que le Wake-on-LAN échoue, et
+AJEAN ne peut pas les régler à distance.
+
 ### Moteur
 
 La section **Moteur** installe et met à jour llama.cpp en trois variantes, choisies par preset :
@@ -251,6 +261,9 @@ Moteur (ajean-engine)
   vram | gpu [index...]         mémoire GPU / choisir les GPU (gpu all = tous)
   set-api-key [clé]             protéger l'API du modèle
   network [on|off|status]       point d'accès OpenAI sur le réseau local
+  wol [<MAC>] [-ip <ip>]        réveiller un PC du réseau par paquet magique (Wake on LAN)
+  wol list                      les MAC vues sur le réseau, à recopier dans un preset externe
+  wol check [ip]                ce qui doit être activé sur le PC à réveiller (BIOS, pilote)
 
 Interface (ajean-ui)
   ui [start|stop|restart|status]

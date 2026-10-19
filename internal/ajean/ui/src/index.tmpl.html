@@ -1041,6 +1041,31 @@
             <span class="pe-row-l"><span data-i18n="preset.vision_label">Vision</span><span class="pe-sub" data-i18n="external.vision_label">le modèle accepte les images</span></span>
             <span class="pe-row-c"><label class="pe-switch"><input type="checkbox" id="s-ext-vision" onchange="cfgWriteKey('EXTERNAL_VISION', this.checked ? '1' : '')"><span class="pe-sl"></span></label></span>
           </div>
+          <!-- Wake on LAN : le PC qui sert cette API est un PC du LAN, parfois éteint.
+               Sa MAC nommée ici permet à AJEAN d'envoyer le paquet magique, d'attendre
+               que le port réponde, puis de rejouer la requête. Jamais hors du LAN. -->
+          <div class="pe-row">
+            <span class="pe-row-l"><span data-i18n="wol.label">Réveiller ce PC (Wake on LAN)</span><span class="pe-sub" data-i18n="wol.label_hint">le PC du LAN qui sert l'API, quand il est éteint</span> <span class="help" tabindex="0" onclick="event.preventDefault();event.stopPropagation();this.classList.toggle('open')">?<span class="tip" data-i18n="wol.help" data-i18n-html>Le PC qui sert cette API est un PC de ton réseau local, et il est parfois éteint.</span></span></span>
+            <span class="pe-row-c"><label class="pe-switch"><input type="checkbox" id="s-ext-wol" onchange="cfgWriteKey('WOL', this.checked ? '1' : '');setWOLBody(this.checked)"><span class="pe-sl"></span></label></span>
+          </div>
+          <div id="m-wol-body" class="pe-list" style="display:none;margin-top:6px">
+            <div class="pe-row stack">
+              <span class="pe-row-l"><span data-i18n="wol.mac_label">MAC de la machine</span> <span class="pe-sub" data-i18n="wol.mac_hint">ex: b0:82:e2:46:7e:34 — les séparateurs sont ignorés</span></span>
+              <input id="s-ext-wol-mac" class="pe-inp" spellcheck="false" placeholder="aa:bb:cc:dd:ee:ff" oninput="cfgWriteKey('WOL_MAC', this.value)">
+            </div>
+            <div class="pe-row">
+              <span class="pe-row-l"><span data-i18n="wol.wait_label">Attente du démarrage</span><span class="pe-sub" data-i18n="wol.wait_hint">secondes max, le temps du POST et du chargement du modèle</span></span>
+              <span class="pe-row-c"><input id="s-ext-wol-wait" class="pe-val" type="number" min="10" max="600" step="10" placeholder="90" oninput="cfgWriteKey('WOL_WAIT', this.value)"><span class="pe-unit">s</span></span>
+            </div>
+            <div class="pe-row stack">
+              <span class="pe-row-l"><span data-i18n="wol.check_label">Vérifier la machine</span> <span class="pe-sub" id="s-ext-wol-status"></span></span>
+              <input id="s-ext-wol-check" class="pe-inp" spellcheck="false" placeholder="192.168.0.26">
+            </div>
+            <div class="pe-row" style="cursor:pointer" onclick="sendWOLPacket()">
+              <span class="pe-row-l"><span data-i18n="wol.send">envoyer le paquet magique</span><span class="pe-sub" data-i18n="wol.send_hint">test sur la machine éteinte — la sonde de santé, elle, ne réveille jamais</span></span>
+              <span class="pe-row-c"><span class="pe-unit">→</span></span>
+            </div>
+          </div>
           <div class="pe-row" style="cursor:pointer" onclick="testExternalPreset()">
             <span class="pe-row-l"><span data-i18n="external.test">tester la connexion</span><span class="pe-sub" id="s-ext-status"></span></span>
             <span class="pe-row-c"><span class="pe-unit">→</span></span>

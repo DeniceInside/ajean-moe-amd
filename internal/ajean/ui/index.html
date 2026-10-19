@@ -2603,6 +2603,28 @@ button.th-head:hover{background:var(--t1)}
             <span class="pe-row-l"><span data-i18n="preset.vision_label">Vision</span><span class="pe-sub" data-i18n="external.vision_label">le modèle accepte les images</span></span>
             <span class="pe-row-c"><label class="pe-switch"><input type="checkbox" id="s-ext-vision" onchange="cfgWriteKey('EXTERNAL_VISION', this.checked ? '1' : '')"><span class="pe-sl"></span></label></span>
           </div>
+          <div class="pe-row">
+            <span class="pe-row-l"><span data-i18n="wol.label">Réveiller ce PC (Wake on LAN)</span><span class="pe-sub" data-i18n="wol.label_hint">le PC du LAN qui sert l'API, quand il est éteint</span> <span class="help" tabindex="0" onclick="event.preventDefault();event.stopPropagation();this.classList.toggle('open')">?<span class="tip" data-i18n="wol.help" data-i18n-html>Le PC qui sert cette API est un PC de ton réseau local, et il est parfois éteint.</span></span></span>
+            <span class="pe-row-c"><label class="pe-switch"><input type="checkbox" id="s-ext-wol" onchange="cfgWriteKey('WOL', this.checked ? '1' : '');setWOLBody(this.checked)"><span class="pe-sl"></span></label></span>
+          </div>
+          <div id="m-wol-body" class="pe-list" style="display:none;margin-top:6px">
+            <div class="pe-row stack">
+              <span class="pe-row-l"><span data-i18n="wol.mac_label">MAC de la machine</span> <span class="pe-sub" data-i18n="wol.mac_hint">ex: b0:82:e2:46:7e:34 — les séparateurs sont ignorés</span></span>
+              <input id="s-ext-wol-mac" class="pe-inp" spellcheck="false" placeholder="aa:bb:cc:dd:ee:ff" oninput="cfgWriteKey('WOL_MAC', this.value)">
+            </div>
+            <div class="pe-row">
+              <span class="pe-row-l"><span data-i18n="wol.wait_label">Attente du démarrage</span><span class="pe-sub" data-i18n="wol.wait_hint">secondes max, le temps du POST et du chargement du modèle</span></span>
+              <span class="pe-row-c"><input id="s-ext-wol-wait" class="pe-val" type="number" min="10" max="600" step="10" placeholder="90" oninput="cfgWriteKey('WOL_WAIT', this.value)"><span class="pe-unit">s</span></span>
+            </div>
+            <div class="pe-row stack">
+              <span class="pe-row-l"><span data-i18n="wol.check_label">Vérifier la machine</span> <span class="pe-sub" id="s-ext-wol-status"></span></span>
+              <input id="s-ext-wol-check" class="pe-inp" spellcheck="false" placeholder="192.168.0.26">
+            </div>
+            <div class="pe-row" style="cursor:pointer" onclick="sendWOLPacket()">
+              <span class="pe-row-l"><span data-i18n="wol.send">envoyer le paquet magique</span><span class="pe-sub" data-i18n="wol.send_hint">test sur la machine éteinte — la sonde de santé, elle, ne réveille jamais</span></span>
+              <span class="pe-row-c"><span class="pe-unit">→</span></span>
+            </div>
+          </div>
           <div class="pe-row" style="cursor:pointer" onclick="testExternalPreset()">
             <span class="pe-row-l"><span data-i18n="external.test">tester la connexion</span><span class="pe-sub" id="s-ext-status"></span></span>
             <span class="pe-row-c"><span class="pe-unit">→</span></span>
@@ -3677,7 +3699,10 @@ fr: {
   "status.cloud_deploying": "déploiement…",
   "status.cloud_downloading": "téléchargement…",
   "status.cloud_loading": "chargement…",
+  "status.wol_waking": "réveil du PC…",
+  "status.wol_ready": "prêt",
   "chat.cloud_waking": "réveil du GPU Cloud…",
+  "chat.wol_waking": "réveil du PC du réseau…",
   "chat.cloud_downloading": "téléchargement du modèle, premier démarrage (plusieurs minutes)…",
   "chat.cloud_loading": "chargement du modèle…",
   "status.error": "erreur",
@@ -3780,6 +3805,20 @@ fr: {
   "external.testing": "test en cours…",
   "external.test_ok": "connexion réussie",
   "external.test_failed": "échec de la connexion",
+  "wol.label": "Réveiller ce PC (Wake on LAN)",
+  "wol.label_hint": "le PC du LAN qui sert l'API, quand il est éteint",
+  "wol.help": "Le PC qui sert cette API est un PC de ton réseau local, et il est parfois éteint. Avec sa MAC (la commande <code>ajean wol</code> te la propose), AJEAN enverra le paquet magique, attendra que la machine démarre et que le moteur charge, puis rejouera ta requête : le chat répond, sans que tu aies à renvoyer ton message. Le réveil ne se déclenche que sur une adresse de ton réseau local, et une simple vérification de santé ne réveille jamais. Le paquet magique ne réveille une machine que si le Wake-on-LAN est activé dans son BIOS (Power On By PCI-E, Enable PME, ErP désactivé) et dans son pilote (Wake on Magic Packet).",
+  "wol.mac_label": "MAC de la machine",
+  "wol.mac_hint": "ex: b0:82:e2:46:7e:34 — les séparateurs sont ignorés",
+  "wol.mac_required": "MAC requise",
+  "wol.wait_label": "Attente du démarrage",
+  "wol.wait_hint": "secondes max, le temps du POST et du chargement du modèle",
+  "wol.check_label": "Vérifier la machine",
+  "wol.send": "envoyer le paquet magique",
+  "wol.send_hint": "test sur la machine éteinte — la sonde de santé, elle, ne réveille jamais",
+  "wol.sending": "paquet envoyé, démarrage en cours…",
+  "wol.sent": "machine réveillée, API joignable",
+  "wol.send_failed": "échec du réveil",
   "external.saving": "enregistrement…",
   "external.saved": "API Externe enregistrée",
   "external.save_failed": "échec de l'enregistrement",
@@ -5036,7 +5075,10 @@ en: {
   "status.cloud_deploying": "deploying…",
   "status.cloud_downloading": "downloading…",
   "status.cloud_loading": "loading…",
+  "status.wol_waking": "waking PC…",
+  "status.wol_ready": "ready",
   "chat.cloud_waking": "waking up the Cloud GPU…",
+  "chat.wol_waking": "waking up the LAN machine…",
   "chat.cloud_downloading": "downloading the model, first start (several minutes)…",
   "chat.cloud_loading": "loading the model…",
   "status.error": "error",
@@ -5139,6 +5181,20 @@ en: {
   "external.testing": "testing…",
   "external.test_ok": "connection successful",
   "external.test_failed": "connection failed",
+  "wol.label": "Wake up this PC (Wake on LAN)",
+  "wol.label_hint": "the LAN machine serving the API, when it is powered off",
+  "wol.help": "The PC serving this API is a machine on your local network, and it is sometimes powered off. Give AJEAN its MAC (the <code>ajean wol</code> command suggests it) and it will send the magic packet, wait for the machine to boot and the engine to load, then replay your request: the chat answers without you resending anything. Wake-up is only triggered for a local-network address, and a plain health check never wakes a machine. The magic packet only wakes a machine if Wake-on-LAN is enabled in its BIOS (Power On By PCI-E, Enable PME, ErP disabled) and in its driver (Wake on Magic Packet).",
+  "wol.mac_label": "Machine MAC",
+  "wol.mac_hint": "e.g. b0:82:e2:46:7e:34 — separators are ignored",
+  "wol.mac_required": "MAC required",
+  "wol.wait_label": "Boot wait",
+  "wol.wait_hint": "max seconds, the time for POST plus model loading",
+  "wol.check_label": "Check the machine",
+  "wol.send": "send the magic packet",
+  "wol.send_hint": "test on the powered-off machine — the health probe never wakes it",
+  "wol.sending": "packet sent, booting…",
+  "wol.sent": "machine woken, API reachable",
+  "wol.send_failed": "wake-up failed",
   "external.saving": "saving…",
   "external.saved": "external API saved",
   "external.save_failed": "save failed",
@@ -6309,6 +6365,8 @@ function askKeyOnce(){
 async function jget(u){ const r=await jfetch(u); return r.json(); }
 async function jpost(u,b){ const r=await jfetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}); return r.json(); }
 let CLOUD_PHASE = '';
+let WOL_PHASE = '';
+let WOL_DETAIL = ''; 
 let LAST_BOOT=null; 
 let LAST_PRESET=null; 
 async function loadStatus(){
@@ -6333,6 +6391,9 @@ async function loadStatus(){
   else if(s.load_error){ cls='err'; txt=t('status.error'); }
   else if(s.active){ cls='loading'; txt=t('status.loading'); }
   CLOUD_PHASE = s.cloud_phase || '';
+  WOL_PHASE = s.wol_phase || '';
+  WOL_DETAIL = s.wol_detail || '';
+  if(WOL_PHASE && s.active && !s.load_error){ cls='loading'; txt=t('status.wol_'+(WOL_PHASE==='ready'?'ready':'waking')); }
   const cloudPill = {checking:['loading','status.cloud_checking'], sleeping:['ok','status.cloud_sleeping'], deploying:['loading','status.cloud_deploying'],
                      downloading:['loading','status.cloud_downloading'], loading:['loading','status.cloud_loading']}[CLOUD_PHASE];
   if(cloudPill && s.active && !s.load_error){ cls=cloudPill[0]; txt=t(cloudPill[1]); }
@@ -8056,7 +8117,27 @@ function syncRunMode(){
     document.getElementById('s-ext-ctx').value = cfgReadKey('CTX');
     document.getElementById('s-ext-vision').checked = cfgReadKey('EXTERNAL_VISION') === '1';
     document.getElementById('s-ext-status').textContent = '';
+    const wolOn = cfgReadKey('WOL') === '1';
+    document.getElementById('s-ext-wol').checked = wolOn;
+    document.getElementById('s-ext-wol-mac').value = cfgReadKey('WOL_MAC');
+    document.getElementById('s-ext-wol-wait').value = cfgReadKey('WOL_WAIT');
+    document.getElementById('s-ext-wol-status').textContent = '';
+    setWOLBody(wolOn);
   }
+}
+function setWOLBody(on){
+  const b = document.getElementById('m-wol-body');
+  if(b) b.style.display = on ? '' : 'none';
+}
+async function sendWOLPacket(){
+  const st = document.getElementById('s-ext-wol-status');
+  const mac = cfgReadKey('WOL_MAC'), ip = document.getElementById('s-ext-wol-check').value.trim();
+  if(!mac){ st.textContent = t('wol.mac_required'); return; }
+  st.textContent = t('wol.sending');
+  try{
+    const r = await jpost('/api/preset/external/wol', {mac, ip, url: cfgReadKey('EXTERNAL_URL'), port: cfgReadKey('WOL_PORT'), wait: cfgReadKey('WOL_WAIT')});
+    st.textContent = r.ok ? '✓ '+(r.detail || t('wol.sent')) : '⚠ '+(r.error || t('wol.send_failed'));
+  }catch(e){ st.textContent = '⚠ '+t('wol.send_failed'); }
 }
 async function testExternalPreset(){
   const st = document.getElementById('s-ext-status');
@@ -9263,6 +9344,9 @@ function paintGenStatus(){
   let extra='';
   if(tok===0 && CLOUD_PHASE && CLOUD_PHASE!=='ready'){
     extra=t(CLOUD_PHASE==='downloading' ? 'chat.cloud_downloading' : CLOUD_PHASE==='loading' ? 'chat.cloud_loading' : 'chat.cloud_waking');
+  }
+  if(tok===0 && WOL_PHASE && WOL_PHASE!=='ready'){
+    extra=t('chat.wol_waking')+(WOL_DETAIL ? ' · '+WOL_DETAIL : '');
   }
   paintGenParts(txt, genItems(secs, tok, tok>0?genRate():null, activePresetName(), extra));
   scrollMaybe();

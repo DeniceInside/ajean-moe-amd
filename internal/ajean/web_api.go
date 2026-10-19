@@ -85,6 +85,10 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		"preset":      activePresetID(),   // id du preset actif : un autre appareil a pu basculer, l'UI se resynchronise sans reload (voir loadStatus)
 		"external":    external,           // preset actif = API OpenAI-compatible distante (pas de moteur local)
 		"cloud_phase": cloudPhaseActive(), // GPU Cloud : deploying|sleeping|downloading|loading|ready|error ("" hors cloud)
+		// Réveil Wake on LAN du preset externe en cours : waking|waiting|ready ("" sinon).
+		// La bulle de génération affiche ce temps d'attente (voir chat.wol_waking).
+		"wol_phase":  wolActive(),
+		"wol_detail": wolActiveDetail(),
 		// Anciens drapeaux --mlock/--no-mmap présents alors que le moteur attend
 		// --load-mode (llama.cpp récent) : l'UI propose un bouton de mise à jour.
 		// Le serveur démarre quand même (traduits au lancement) — c'est un nettoyage.

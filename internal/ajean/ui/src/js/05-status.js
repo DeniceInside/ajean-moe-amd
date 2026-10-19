@@ -1,5 +1,9 @@
 // Étape du GPU Cloud du preset actif (voir cloudPhase côté serveur), "" sinon.
 let CLOUD_PHASE = '';
+// Étape du réveil Wake on LAN (voir wolPhaseActive côté serveur), "" sinon.
+// Un preset API Externe peut nommer la MAC du PC du LAN qui sert son API.
+let WOL_PHASE = '';
+let WOL_DETAIL = ''; // « MAC · 42 s écoulées » : le temps d'attente visible dans la bulle
 let LAST_BOOT=null; // empreinte de démarrage du serveur vue au dernier poll
 let LAST_PRESET=null; // id du preset actif vu au dernier poll (détecte une bascule faite ailleurs)
 async function loadStatus(){
@@ -39,6 +43,9 @@ async function loadStatus(){
   // réelle (en veille, téléchargement du modèle, chargement…). L'envoi reste
   // possible en veille : c'est le message qui réveille le GPU.
   CLOUD_PHASE = s.cloud_phase || '';
+  WOL_PHASE = s.wol_phase || '';
+  WOL_DETAIL = s.wol_detail || '';
+  if(WOL_PHASE && s.active && !s.load_error){ cls='loading'; txt=t('status.wol_'+(WOL_PHASE==='ready'?'ready':'waking')); }
   const cloudPill = {checking:['loading','status.cloud_checking'], sleeping:['ok','status.cloud_sleeping'], deploying:['loading','status.cloud_deploying'],
                      downloading:['loading','status.cloud_downloading'], loading:['loading','status.cloud_loading']}[CLOUD_PHASE];
   if(cloudPill && s.active && !s.load_error){ cls=cloudPill[0]; txt=t(cloudPill[1]); }
