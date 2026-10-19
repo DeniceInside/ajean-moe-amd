@@ -241,20 +241,22 @@ func handlePresetExternalWOL(w http.ResponseWriter, r *http.Request) {
 	}
 	// L'URL de la modale donne le port du service à attendre ; le champ IP, quand
 	// il est rempli, teste une AUTRE machine du LAN avec ce même port.
-	_, port, uerr := wolHostPort(req.URL)
-	host := strings.TrimSpace(req.IP)
-	if host == "" {
-		h, _, err := wolHostPort(req.URL)
-		if err != nil {
-			sendJSON(w, 200, map[string]any{"ok": false, "error": "IP de la cible requise (l'URL de l'API ne la donne pas)"})
-			return
-		}
-		host = h
+	// L'URL de la modale donne le PORT DU SERVICE à attendre ; le champ IP, quand il
+	// est rempli, teste une AUTRE machine du LAN avec ce même port. Une URL sans port
+	// exploitable (mal formée, ou sans hôte) n'est pas une cible : on le dit, au lieu
+	// d'inventer un port.
+	h, port, perr := wolHostPort(req.URL)
+	if perr != nil && strings.TrimSpace(req.IP) == "" {
+		sendJSON(w, 200, map[string]any{"ok": false, "error": "IP de la cible requise (l'URL de l'API ne la donne pas)"})
+		return
 	}
-	if host != "" && port == "" {
+	if port == "" {
 		port = "8080"
 	}
-	_ = uerr
+	host := strings.TrimSpace(req.IP)
+	if host == "" {
+		host = h
+	}
 	tt, _ := wolOf(map[string]string{wolKeyFlag: "1", wolKeyMAC: mac, wolKeyPort: req.Port, wolKeyWait: req.Wait})
 	if tt.MAC == "" {
 		sendJSON(w, 200, map[string]any{"ok": false, "error": "MAC invalide"})

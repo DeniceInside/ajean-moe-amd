@@ -173,6 +173,25 @@ func TestWOLSendEndpoint(t *testing.T) {
 		t.Errorf("MAC invalide : %v (%d trames)", out, udpSends)
 	}
 
+	// Ni URL exploitable, ni IP saisie : la cible est introuvable, et le bouton le dit
+	// au lieu d'inventer un port.
+	out = post(wolSendReq{MAC: "b0:82:e2:46:7e:34", URL: "pas-une-url"})
+	if out["ok"] == true {
+		t.Errorf("réveil sans cible : %v", out)
+	}
+	if e, _ := out["error"].(string); !strings.Contains(e, "IP") {
+		t.Errorf("erreur = %q, attendu qu'elle demande l'IP de la cible", e)
+	}
+	// URL mal formée mais IP saisie : la cible du test garde le port du service.
+	// Cible FRAÎCHE (192.168.0.44) : après un réveil sans effet, une cible est en
+	// cooldown de 60 s — un réveil par cible, la garde posée. Les cibles des cas
+	// précédents (.26, .13) sont donc en cooldown ici, et le message le dit.
+	udpSends = 0
+	out = post(wolSendReq{MAC: "70:70:fc:06:9a:1c", IP: "192.168.0.44", URL: "pas-une-url", Wait: "10"})
+	if udpSends == 0 {
+		t.Errorf("cible saisie sans trame (URL mal formée a tout bloqué) : %v", out)
+	}
+
 	// Machine allumée : rien à envoyer, et le bouton le dit.
 	wolDial = func(_, _ string, _ time.Duration) (net.Conn, error) { return &fakeConn{}, nil }
 	udpSends = 0
