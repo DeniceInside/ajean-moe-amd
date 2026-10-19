@@ -197,6 +197,65 @@ func wolListableIP(ip net.IP) bool {
 	return ip != nil && ip.To4() != nil && ip.IsPrivate() && !ip.IsMulticast() && !ip.IsUnspecified()
 }
 
+// wolLayerLines : les trois couches à activer sur la machine À RÉVEILLER, dans les
+// termes de SON système. Une fonction pure, l'OS en paramètre et non lu dans
+// runtime.GOOS : la CI tourne sous Linux et n'aurait JAMAIS vu le texte Windows
+// sans ça. C'est la leçon du rouge macOS — un chemin conditionné par l'OS où il
+// s'exécute n'est pas testé, il est seulement prié d'être juste.
+//
+// Le texte Windows ne nomme AUCUN outil de Linux : ethtool et /proc/acpi n'existent
+// pas là-bas, une commande qu'on ne peut pas taper fait chercher l'utilisateur
+// pendant une heure. Le troisième point est propre à Windows et est la cause
+// d'échec la plus silencieuse : l'arrêt hybride (Fast Startup) n'alimente pas la
+// carte en S5, la machine paraît éteinte et n'écoute plus rien.
+func wolLayerLines(goos string) []string {
+	if goos == "darwin" {
+		// Pas de ligne BIOS : un Mac n'a ni « Power On By PCI-E » ni « ErP », ce
+		// sont des réglages de firmware PC. Les donner à un utilisateur de Mac,
+		// c'est lui faire chercher un menu qui n'existe pas. Le réveil réseau d'un
+		// Mac se règle dans le système, et il ne s'éveille QUE depuis la veille :
+		// aucun modèle ne s'allume depuis un arrêt complet. Le dire est utile, « le
+		// WOL ne marche pas » est alors un réglage impossible, pas une panne.
+		return []string{
+			"  1. Firmware : " + bold("aucun réglage de Wake on LAN") + " dans l'utilitaire de " +
+				"configuration d'un Mac — les trois couches se règlent dans le système",
+			"  2. Système : " + bold("Wake for network access = coché") + " (lecture : " +
+				dim("pmset -g | grep -i womp") + ", " + bold("womp 1") + " = armé ; réglage : " +
+				dim("sudo pmset -a womp 1") + ")",
+			"  3. Un Mac s'éveille " + bold("depuis la veille") + ", pas depuis un arrêt complet : " +
+				"le réseau doit rester alimenté, et " + bold("le Wi-Fi ne suffit pas") + ", " +
+				bold("le câble") + " est fiable",
+			"    lecture : " + dim("pmset -g custom  (le réglage doit être armé pour le mode utilisé)"),
+		}
+	}
+	if goos == "windows" {
+		// Le troisième point est propre à Windows et est la cause d'échec la plus
+		// silencieuse : l'arrêt hybride (Fast Startup) n'alimente pas la carte en
+		// S5, la machine paraît éteinte et n'écoute plus rien.
+		return []string{
+			"  1. BIOS/UEFI : " + bold("Wake on LAN") + " / " + bold("Power On By PCI-E = Enabled") +
+				", " + bold("Enable PME = Enabled") + ", " + bold("ErP Ready / Deep Sleep = Disabled"),
+			"  2. Pilote : " + bold("Wake on Magic Packet = Enabled") + ", et " +
+				bold("Allow the computer to turn off this device = Unchecked"),
+			"    lecture : " + dim(`powershell -NoProfile -NonInteractive -Command "Get-NetAdapterPowerManagement | fl *Wake*"`),
+			"  3. Windows : " + bold("Fast Startup / HiberbootEnabled = 0") +
+				" (sinon l'arrêt hybride n'alimente pas la carte en S5)",
+			"    lecture : " + dim("powercfg /a"),
+		}
+	}
+	// Linux, et tout système à firmware PC : c'est le texte le plus standard, et
+	// ses commandes marchent aussi sur les BSD.
+	return []string{
+		"  1. BIOS/UEFI : " + bold("Wake on LAN") + " / " + bold("Power On By PCI-E = Enabled") +
+			", " + bold("Enable PME = Enabled") + ", " + bold("ErP Ready / Deep Sleep = Disabled"),
+		"  2. Pilote : " + bold("Wake on Magic Packet") + " (lecture : " +
+			dim("ethtool <interface> | grep -i wake-on") + ")",
+		"  3. État d'arrêt : le réveil doit être armé en " + bold("S5") +
+			" (arrêt complet), pas en veille moderne sans réseau alimenté",
+		"    lecture : " + dim("cat /proc/acpi/wakeup  (la carte doit y figurer, *enabled)"),
+	}
+}
+
 // wolCheck : ce qui doit être réglé sur la machine ciblée. AJEAN ne pilote PAS
 // le BIOS ni le pilote d'une machine distante — il dit ce qu'il faut y vérifier,
 // avec la commande exacte à y taper. La lecture locale (Wake-on du driver, via
@@ -236,28 +295,31 @@ func wolCheck(args []string) error {
 			fmt.Printf("  pilote : %s (%v)\n", dim("non lisible ici"), err)
 		}
 	}
-	fmt.Printf("\n%s sur %s, les trois couches à activer (le WOL échoue presque toujours ici) :\n",
-		dim("[info]"), ip)
-	fmt.Printf("  1. BIOS/UEFI : Wake on LAN / Power On By PCI-E = %s, Enable PME = %s, %s = %s\n",
-		bold("Enabled"), bold("Enabled"), bold("ErP Ready / Deep Sleep"), bold("Disabled"))
-	if runtime.GOOS == "windows" {
-		fmt.Printf("  2. Pilote : %s = %s, et %s = %s\n",
-			bold("Wake on Magic Packet"), bold("Enabled"), bold("Allow the computer to turn off this device"), bold("Unchecked"))
-		fmt.Printf("    lecture : %s\n", dim("powershell -NoProfile -NonInteractive -Command \"Get-NetAdapterPowerManagement | fl *Wake*\""))
-		fmt.Printf("  3. Windows : %s = %s (sinon l'arrêt hybride n'alimente pas la carte en S5)\n",
-			bold("Fast Startup / HiberbootEnabled"), bold("0"))
-		fmt.Printf("    lecture : %s\n", dim("powercfg /a"))
-	} else {
-		fmt.Printf("  2. Pilote : %s (lecture : %s)\n", bold("Wake on Magic Packet"), dim("ethtool <interface> | grep -i wake-on"))
-		fmt.Printf("  3. État d'arrêt : le réveil doit être armé en %s (arrêt complet), pas en veille moderne sans réseau alimenté\n", bold("S5"))
-		fmt.Printf("    lecture : %s\n", dim("cat /proc/acpi/wakeup  (la carte doit y figurer, *enabled)"))
-	}
-	if declared {
-		fmt.Printf("\n%s test : %s\n", dim("[info]"), bold("ajean wol "+tt.MAC+" -ip "+ip))
-	} else {
-		fmt.Printf("\n%s test, la MAC en main : %s\n", dim("[info]"), bold("ajean wol aa:bb:cc:dd:ee:ff -ip "+ip))
+	for _, l := range wolCheckLines(ip, tt, declared, runtime.GOOS) {
+		fmt.Println(l)
 	}
 	return nil
+}
+
+// wolCheckLines : le rapport complet de `ajean wol check`, en pur — l'OS en
+// paramètre, aucune écriture, aucune lecture de la base.
+//
+// Le test porte sur la liste ENSEMBLE, pas sur chaque fonction séparée : la
+// première factorisation a émis la ligne BIOS DEUX FOIS (une dans wolCheck, une
+// dans wolLayerLines) et les tests des fonctions seules sont restés verts.
+// Vérifier un assemblage, c'est vérifier l'assemblage.
+func wolCheckLines(ip string, tt wolTarget, declared bool, goos string) []string {
+	out := []string{
+		"",
+		dim("[info]") + " sur " + bold(ip) + ", les trois couches à activer (le WOL échoue presque toujours ici) :",
+	}
+	out = append(out, wolLayerLines(goos)...)
+	if declared {
+		out = append(out, "", dim("[info]")+" test : "+bold("ajean wol "+tt.MAC+" -ip "+ip))
+	} else {
+		out = append(out, "", dim("[info]")+" test, la MAC en main : "+bold("ajean wol aa:bb:cc:dd:ee:ff -ip "+ip))
+	}
+	return out
 }
 
 // Les outils système lus par `ajean wol` (lecture seule, jamais d'écriture) :

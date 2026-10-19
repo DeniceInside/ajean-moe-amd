@@ -287,3 +287,116 @@ func TestWOLListPeersPrints(t *testing.T) {
 		t.Fatalf("wolListPeers (liste vide) : %v", err)
 	}
 }
+
+// Le texte des trois couches, testé pour les TROIS systèmes que la CI compile.
+// Avant la factorisation en fonction pure, ce texte était rendu dans un bloc
+// conditionné par runtime.GOOS : la CI (Linux + macOS) ne voyait donc jamais le
+// texte Windows, et un outillage de Linux dans ce texte y aurait vécu sans que
+// personne le remarque. C'est la leçon du rouge macOS, appliquée au texte.
+func TestWOLLayerLinesSpeakTheOSTheyDescribe(t *testing.T) {
+	testHome(t)
+	// Ce que chaque système doit contenir, dans ses mots à lui.
+	wants := map[string][]string{
+		"windows": {
+			"Wake on Magic Packet", "Enabled",
+			"Allow the computer to turn off this device", "Unchecked",
+			"Get-NetAdapterPowerManagement",
+			"Fast Startup / HiberbootEnabled", "powercfg /a",
+			"Power On By PCI-E", "ErP Ready",
+		},
+		"linux": {
+			"Wake on Magic Packet", "ethtool", "S5", "/proc/acpi/wakeup",
+			"Power On By PCI-E", "Enable PME", "ErP Ready",
+		},
+		"darwin": {
+			"Wake for network access", "pmset", "womp",
+			"depuis la veille",             // jamais depuis un arrêt complet : propre aux Mac
+			"aucun réglage de Wake on LAN", // pas de firmware PC sur un Mac
+			"le câble",
+		},
+	}
+	// Ce qu'un système ne doit JAMAIS nommer : un outil qui n'existe pas chez lui.
+	// Une commande qu'on ne peut pas taper fait chercher l'utilisateur une heure.
+	nevers := map[string][]string{
+		"windows": {"ethtool", "/proc/acpi/wakeup", "sudo", "systemctl"},
+		"linux":   {"powershell", "powercfg", "Get-NetAdapterPowerManagement", "HiberbootEnabled", "pmset", "womp"},
+		"darwin":  {"ethtool", "/proc/acpi/wakeup", "powercfg", "HiberbootEnabled", "Power On By PCI-E", "ErP Ready"},
+	}
+	for _, goos := range []string{"windows", "linux", "darwin"} {
+		lines := wolLayerLines(goos)
+		if len(lines) < 3 {
+			t.Fatalf("%s : %d ligne(s), attendu les trois couches", goos, len(lines))
+		}
+		all := strings.Join(lines, "\n")
+		for _, w := range wants[goos] {
+			if !strings.Contains(all, w) {
+				t.Errorf("%s : %q absent\n--- rendu ---\n%s", goos, w, all)
+			}
+		}
+		for _, n := range nevers[goos] {
+			if strings.Contains(all, n) {
+				t.Errorf("%s : nomme %q, outil de chez un autre système\n--- rendu ---\n%s", goos, n, all)
+			}
+		}
+	}
+	// Un système inconnu rend le texte Linux : le plus standard des trois, et le
+	// seul dont les commandes marchent aussi sur les BSD.
+	if len(wolLayerLines("plan9")) < 3 {
+		t.Error("système inconnu : texte attendu, rendu vide")
+	}
+	// Le firmware PC (BIOS/UEFI) se dit sur Windows et Linux, PAS sur un Mac : il
+	// n'y a pas de tel menu. Le rendre sur darwin ferait chercher un réglage qui
+	// n'existe pas. Le dire ici, c'est rendre le test utile.
+	for _, goos := range []string{"windows", "linux"} {
+		if !strings.Contains(strings.Join(wolLayerLines(goos), "\n"), "BIOS/UEFI") {
+			t.Errorf("%s : la couche BIOS/UEFI manque", goos)
+		}
+	}
+}
+
+// Le test porte sur la liste ENSEMBLE. La première factorisation a émis la ligne
+// BIOS DEUX FOIS — une fois dans wolCheck, une fois dans wolLayerLines — et les
+// tests des fonctions prises séparément sont restés verts : ils ne voyaient pas
+// l'assemblage. Vérifier un assemblage, c'est vérifier l'assemblage.
+func TestWOLCheckLinesAssembleOnceEachLayer(t *testing.T) {
+	testHome(t)
+	for _, goos := range []string{"windows", "linux", "darwin"} {
+		lines := wolCheckLines("192.168.0.26", wolTarget{MAC: "B082E2467E34"}, true, goos)
+		all := strings.Join(lines, "\n")
+		// Une seule ligne BIOS (le doublon que la première factorisation produisait).
+		if n := strings.Count(all, "BIOS/UEFI"); n > 1 {
+			t.Errorf("%s : %d mention(s) de BIOS/UEFI, attendu 0 ou 1\n--- rendu ---\n%s", goos, n, all)
+		}
+		// Les trois couches, numérotées 1, 2, 3, chacune UNE fois.
+		for _, n := range []string{"1. ", "2. ", "3. "} {
+			if c := strings.Count(all, "\n  "+n); c != 1 {
+				t.Errorf("%s : %d ligne(s) numérotée(s) %s, attendu 1\n--- rendu ---\n%s", goos, c, n, all)
+			}
+		}
+		// Le rapport termine par la commande de test, avec la MAC du preset.
+		if !strings.Contains(all, "ajean wol B082E2467E34 -ip 192.168.0.26") {
+			t.Errorf("%s : la commande de test avec la MAC du preset manque\n--- rendu ---\n%s", goos, all)
+		}
+		// Pas de doublon exact dans le rapport.
+		seen := map[string]int{}
+		for _, l := range lines {
+			if strings.TrimSpace(l) == "" {
+				continue
+			}
+			seen[l]++
+		}
+		for l, c := range seen {
+			if c > 1 {
+				t.Errorf("%s : ligne émise %d fois : %q", goos, c, l)
+			}
+		}
+	}
+	// Sans MAC déclarée : la commande de test se donne en exemple, pas en MAC vide.
+	noMac := strings.Join(wolCheckLines("192.168.0.26", wolTarget{}, false, "windows"), "\n")
+	if strings.Contains(noMac, "ajean wol  -ip") || strings.Contains(noMac, "ajean wol \"\"") {
+		t.Errorf("rapport sans MAC : commande de test avec une MAC vide\n%s", noMac)
+	}
+	if !strings.Contains(noMac, "aa:bb:cc:dd:ee:ff") {
+		t.Error("rapport sans MAC : l'exemple de commande manque")
+	}
+}
