@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -444,6 +446,110 @@ func wolLLM(ctx context.Context, req *http.Request, body []byte, ep chatEndpoint
 		return nil, wolFriendlyError(err, host, ep)
 	}
 	return http.DefaultClient.Do(req)
+}
+
+// wolLookupHost : résoudre un nom en adresses, en variable pour que les tests
+// ne touchent pas le DNS.
+var wolLookupHost = net.LookupHost
+
+// wolMACForHost : la MAC de la machine qui RÉPOND à cette adresse, lue dans la
+// table ARP. Un test de connexion réussi vient de forcer la résolution ARP de la
+// cible : la table contient donc la machine, et c'est là qu'on peut apprendre sa
+// MAC — la machine est allumée, c'est le moment de la stocker.
+//
+// Conditions, et pourquoi :
+//   - IP privée du LAN uniquement. Une adresse publique port-forcée a une entrée
+//     ARP qui est celle du ROUTEUR : la recopier comme cible de réveil réveillerait
+//     la passerelle, pas le PC. Rien n'est proposé.
+//   - pas de boucle locale : cette machine est celle d'AJEAN, elle est allumée.
+//   - la table ARP ne contient que ce qui a été joint récemment ; une cible hors
+//     de la liaison (routée) n'y est pas. Une absence se dit, elle ne s'invente pas.
+func wolMACForHost(rawHost string) (string, error) {
+	host := strings.TrimSpace(rawHost)
+	if host == "" {
+		return "", fmt.Errorf("aucune cible à lire")
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		addrs, err := wolLookupHost(host)
+		if err != nil || len(addrs) == 0 {
+			return "", fmt.Errorf("nom introuvable : %s", host)
+		}
+		ip = net.ParseIP(addrs[0])
+	}
+	v4 := ip.To4()
+	if v4 == nil {
+		return "", fmt.Errorf("%s : pas une IPv4, rien à lire dans la table ARP", host)
+	}
+	// L'ordre compte : IsPrivate() vaut false pour 127.0.0.1 (mesuré), donc la
+	// boucle locale et les adresses de CETTE machine se testent avant le LAN,
+	// sinon elles ressortiraient « hors du LAN ».
+	if v4.IsLoopback() || wolIsLocalIP(v4) {
+		return "", fmt.Errorf("%s : c'est cette machine, elle est déjà allumée", host)
+	}
+	if !v4.IsPrivate() {
+		return "", fmt.Errorf("%s : hors du LAN, la table ARP donnerait le routeur, pas la machine", host)
+	}
+	peers, err := wolARPTable()
+	if err != nil {
+		return "", err
+	}
+	want := v4.String()
+	for _, p := range peers {
+		if p.ip == want {
+			return p.mac, nil
+		}
+	}
+	return "", fmt.Errorf("%s n'est pas dans la table ARP (la table ne garde que ce qui a été joint récemment)", want)
+}
+
+// Un réveil proposé par la sonde de la modale, jamais envoyé par elle : la
+// classification distingue la machine injoignable de la machine qui répond sans
+// service, parce que le paquet magique n'aide que dans le premier cas.
+const (
+	wolHintNone = iota // rien à voir avec un réveil : message d'origine
+	wolHintWake        // injoignable : la machine est peut-être éteinte
+	wolHintPort        // la machine répond, le service manque : WOL n'y change rien
+)
+
+// wolWakeHint classe une panne de connexion vers une cible de preset externe.
+// Classifieur pur : aucune requête réseau, aucun envoi, il ne lit que l'erreur.
+//
+//	wolHintWake : « no route to host », « network is unreachable », délai dépassé.
+//	          Rien ne répond à cette IP : la machine est hors ligne (éteinte,
+//	          arrêt profond, ou hors du LAN). Un paquet magique peut la sortir de là.
+//	wolHintPort : « connection refused ». Le refus vient d'un RST de la MACHINE :
+//	          elle est allumée, c'est le service qui manque. Envoyer un paquet
+//	          magique serait du bruit — il faut démarrer l'API, pas réveiller le PC.
+//	wolHintNone : le reste (TLS, HTTP, DNS, URL). Un échec TLS prouve qu'un service
+//	          écoute : la machine est allumée, le WOL n'a rien à faire ici.
+//
+// Le réveil coché et une MAC saisie sont requis : sans eux, rien n'est proposé.
+func wolWakeHint(err error, host string, wolOn bool, mac string) int {
+	if err == nil || !wolOn {
+		return wolHintNone
+	}
+	if _, err := wolNormalizeMAC(mac); err != nil || mac == "" {
+		return wolHintNone
+	}
+	if wolGuard(host) != nil {
+		return wolHintNone // pas une IP privée du LAN : pas de trame possible
+	}
+	var operr *net.OpError
+	if !errors.As(err, &operr) {
+		return wolHintNone
+	}
+	switch {
+	case errors.Is(operr, syscall.ECONNREFUSED):
+		return wolHintPort
+	case errors.Is(operr, syscall.EHOSTUNREACH), errors.Is(operr, syscall.ENETUNREACH):
+		return wolHintWake
+	}
+	var neterr net.Error
+	if errors.As(err, &neterr) && neterr.Timeout() {
+		return wolHintWake
+	}
+	return wolHintNone
 }
 
 // wolFriendlyError : le texte vu dans la bulle de chat. La ligne utile est celle

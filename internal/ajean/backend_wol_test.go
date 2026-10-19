@@ -32,6 +32,12 @@ var fakeAddrs = map[int][]*net.IPNet{}
 // fakeNet installe la table d'interfaces et ses adresses, et rend le point
 // d'appel wolInterfaces. Une CIDR mal écrite se voit à la première ligne : la
 // fonction rend l'erreur, et le test qui la reçoit échoue sur place.
+//
+// L'adresse est stockée TELLE QUE GO LA REND : net.Interface.Addrs donne
+// l'adresse de l'INTERFACE avec son masque (192.168.0.104/24), pas le réseau
+// masqué que rend net.ParseCIDR (192.168.0.0/24). Un réseau masqué fait passer un
+// test d'« adresse de cette machine » pour une fiction : wolIsLocalIP ne
+// reconnaît que l'adresse d'interface.
 func fakeNet(list []string) func() ([]net.Interface, error) {
 	fakeAddrs = map[int][]*net.IPNet{}
 	var ifas []net.Interface
@@ -44,12 +50,12 @@ func fakeNet(list []string) func() ([]net.Interface, error) {
 			s = strings.TrimPrefix(s, "lo:")
 		}
 		for _, cidr := range strings.Split(s, "+") {
-			_, n, err := net.ParseCIDR(cidr)
+			ipn, n, err := net.ParseCIDR(cidr)
 			if err != nil {
 				bad = fmt.Errorf("CIDR invalide dans le test : %q (%v)", cidr, err)
 				continue
 			}
-			fakeAddrs[ifa.Index] = append(fakeAddrs[ifa.Index], n)
+			fakeAddrs[ifa.Index] = append(fakeAddrs[ifa.Index], &net.IPNet{IP: ipn, Mask: n.Mask})
 		}
 		ifas = append(ifas, ifa)
 	}

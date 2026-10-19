@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
+	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -262,4 +266,293 @@ func readPresetOK(t *testing.T, id string) string {
 		t.Fatalf("lecture du preset %s : %v", id, err)
 	}
 	return c
+}
+
+// wolTestTimeout : une panne de délai, sans réseau (net.Error avec Timeout()).
+type wolTestTimeout struct{}
+
+func (wolTestTimeout) Error() string   { return "i/o timeout" }
+func (wolTestTimeout) Timeout() bool   { return true }
+func (wolTestTimeout) Temporary() bool { return false }
+
+func wolTestOpErr(inner error) error {
+	return &net.OpError{Op: "dial", Net: "tcp",
+		Source: &net.TCPAddr{IP: net.IPv4(192, 168, 0, 104)},
+		Addr:   &net.TCPAddr{IP: net.IPv4(192, 168, 0, 26), Port: 8080},
+		Err:    inner}
+}
+
+// Le classeur de panne, en pur : c'est lui qui décide si la sonde de la modale
+// propose le paquet magique, et il ne fait aucun réseau. Les trois classes sont
+// distinguées parce que le paquet magique n'aide que dans une seule.
+func TestWOLWakeHintClassifiesTheFailure(t *testing.T) {
+	testHome(t)
+	const mac = "b0:82:e2:46:7e:34"
+	cases := []struct {
+		name string
+		err  error
+		host string
+		on   bool
+		mac  string
+		want int
+	}{
+		{"refus = machine allumée, service absent", wolTestOpErr(syscall.ECONNREFUSED), "192.168.0.26", true, mac, wolHintPort},
+		{"pas de chemin = machine injoignable", wolTestOpErr(syscall.EHOSTUNREACH), "192.168.0.26", true, mac, wolHintWake},
+		{"réseau injoignable", wolTestOpErr(syscall.ENETUNREACH), "192.168.0.26", true, mac, wolHintWake},
+		{"délai dépassé", wolTestOpErr(wolTestTimeout{}), "192.168.0.26", true, mac, wolHintWake},
+		{"échec TLS : un service écoute, machine allumée", errors.New("remote error: tls: bad record MAC"), "192.168.0.26", true, mac, wolHintNone},
+		{"nom introuvable", &net.DNSError{Err: "no such host", Name: "pc-bureau"}, "pc-bureau", true, mac, wolHintNone},
+		{"panne réseau hors OpError", errors.New("boum"), "192.168.0.26", true, mac, wolHintNone},
+		{"réveil décoché : rien à proposer", wolTestOpErr(syscall.EHOSTUNREACH), "192.168.0.26", false, mac, wolHintNone},
+		{"MAC absente : rien à proposer", wolTestOpErr(syscall.EHOSTUNREACH), "192.168.0.26", true, "", wolHintNone},
+		{"MAC invalide : rien à proposer", wolTestOpErr(syscall.EHOSTUNREACH), "192.168.0.26", true, "zz:zz:zz:zz:zz:zz", wolHintNone},
+		{"cible publique : pas de trame possible", wolTestOpErr(syscall.EHOSTUNREACH), "8.8.8.8", true, mac, wolHintNone},
+		{"aucune panne", nil, "192.168.0.26", true, mac, wolHintNone},
+	}
+	for _, c := range cases {
+		if got := wolWakeHint(c.err, c.host, c.on, c.mac); got != c.want {
+			t.Errorf("%s : classe %d, attendu %d", c.name, got, c.want)
+		}
+	}
+}
+
+// Le bouton « tester la connexion » sur un port local fermé : refus de connexion,
+// donc machine ALLUMÉE. La route doit le dire et NE PAS proposer le paquet
+// magique — c'est l'API qu'il faut démarrer. (Port fermé déterministe, aucun
+// réseau extérieur, le test passe sur un runner sans LAN.)
+func TestWOLExternalTestNamesTheClosedPort(t *testing.T) {
+	testHome(t)
+	defer restoreWOLHooks()
+	var udpSends int
+	wolDialUDP = func(_, _ string) (net.Conn, error) { udpSends++; return &fakeConn{}, nil }
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().(*net.TCPAddr)
+	_ = l.Close()
+	url := "http://127.0.0.1:" + strconv.Itoa(addr.Port) + "/v1"
+	setConfig(t, "EXTERNAL=1\nEXTERNAL_URL="+url+"\nEXTERNAL_MODEL=swift\nWOL=1\nWOL_MAC=b0:82:e2:46:7e:34\n")
+	b, _ := json.Marshal(externalSaveReq{URL: url, Model: "swift", WOL: true, WOLMAC: "b0:82:e2:46:7e:34"})
+	w := httptest.NewRecorder()
+	handlePresetExternalTest(w, httptest.NewRequest("POST", "/api/preset/external/test", bytes.NewReader(b)))
+	var out map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["ok"] == true {
+		t.Fatalf("test réussi sur un port fermé : %v", out)
+	}
+	e, _ := out["error"].(string)
+	if !strings.Contains(e, "allumée") {
+		t.Errorf("erreur = %q, attendu qu'elle nomme la machine allumée sans service", e)
+	}
+	if out["wol"] == true {
+		t.Errorf("le paquet magique est proposé sur un refus de connexion : %v", out)
+	}
+	if d, _ := out["detail"].(string); !strings.Contains(d, "refused") {
+		t.Errorf("detail = %q, attendu la panne d'origine à côté du message", d)
+	}
+	// Le test n'a rien envoyé : la sonde ne réveille jamais.
+	if udpSends != 0 {
+		t.Errorf("%d trame(s) envoyée(s) par la sonde, attendu 0", udpSends)
+	}
+}
+
+// Le bouton « tester la connexion » vers une cible de LAN INJOIGNABLE, avec le
+// réveil coché et une MAC saisie : la panne est injectée (extTestDo), aucun
+// réseau. La route doit nommer la machine éteinte, proposer le paquet magique,
+// garder la panne d'origine à côté — et n'envoyer RIEN d'elle-même.
+func TestWOLExternalTestProposesTheMagicPacket(t *testing.T) {
+	testHome(t)
+	defer restoreWOLHooks()
+	var udpSends int
+	wolDialUDP = func(_, _ string) (net.Conn, error) { udpSends++; return &fakeConn{}, nil }
+	orig := extTestDo
+	defer func() { extTestDo = orig }()
+	extTestDo = func(*http.Request) (*http.Response, error) {
+		return nil, wolTestOpErr(syscall.EHOSTUNREACH)
+	}
+	url := "http://192.168.0.26:8080/v1"
+	setConfig(t, "EXTERNAL=1\nEXTERNAL_URL="+url+"\nEXTERNAL_MODEL=swift\nWOL=1\nWOL_MAC=b0:82:e2:46:7e:34\n")
+	b, _ := json.Marshal(externalSaveReq{URL: url, Model: "swift", WOL: true, WOLMAC: "b0:82:e2:46:7e:34"})
+	w := httptest.NewRecorder()
+	handlePresetExternalTest(w, httptest.NewRequest("POST", "/api/preset/external/test", bytes.NewReader(b)))
+	var out map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["ok"] == true {
+		t.Fatalf("test réussi sur panne injectée : %v", out)
+	}
+	if out["wol"] != true {
+		t.Errorf("paquet magique non proposé : %v", out)
+	}
+	e, _ := out["error"].(string)
+	if !strings.Contains(e, "192.168.0.26") || !strings.Contains(e, "peut-être éteinte") {
+		t.Errorf("erreur = %q, attendu la cible nommée et la machine peut-être éteinte", e)
+	}
+	if d, _ := out["detail"].(string); !strings.Contains(d, "no route to host") {
+		t.Errorf("detail = %q, attendu la panne d'origine à côté du message", d)
+	}
+	if udpSends != 0 {
+		t.Errorf("%d trame(s) envoyée(s) par la sonde, attendu 0 : la sonne ne réveille jamais", udpSends)
+	}
+
+	// Réveil décoché sur la même panne : rien n'est proposé, le message d'origine reste.
+	setConfig(t, "EXTERNAL=1\nEXTERNAL_URL="+url+"\nEXTERNAL_MODEL=swift\n")
+	b, _ = json.Marshal(externalSaveReq{URL: url, Model: "swift"})
+	w = httptest.NewRecorder()
+	handlePresetExternalTest(w, httptest.NewRequest("POST", "/api/preset/external/test", bytes.NewReader(b)))
+	out = map[string]any{}
+	json.Unmarshal(w.Body.Bytes(), &out)
+	if out["wol"] == true {
+		t.Errorf("paquet magique proposé sans réveil coché : %v", out)
+	}
+	if e, _ := out["error"].(string); !strings.Contains(e, "injoignable") {
+		t.Errorf("erreur = %q, attendu le message d'origine (injoignable)", e)
+	}
+}
+
+// wolTestARP : une table ARP injectée, sans binaire système.
+func wolTestARP(rows ...string) {
+	wolRunARP = func() ([]byte, error) { return []byte(strings.Join(rows, "\n")), nil }
+	wolRunIP = func() ([]byte, error) { return nil, errors.New("ip absent (test)") }
+}
+
+// wolTestNet : les interfaces de la machine qui RÉVEILLE, posées par le test.
+// L'émetteur est 192.168.0.104 (celui du LAN réel) ; la cible 192.168.0.26 est une
+// AUTRE machine. Les poser est nécessaire : un test qui lit les interfaces réelles
+// dépend de la machine qui l'exécute, et celle-ci porte justement 192.168.0.26, qui
+// ressortirait « c'est cette machine » au lieu d'être la cible du réveil.
+func wolTestNet() {
+	wolInterfaces = fakeNet([]string{"lo:127.0.0.1/8", "192.168.0.104/24"})
+}
+
+// La MAC d'une cible se lit quand la machine RÉPOND : un test de connexion réussi
+// vient de forcer sa résolution ARP, la table la contient. Lecture seule, et une
+// absence se dit — elle ne s'invente pas.
+func TestWOLLearnMACFromARP(t *testing.T) {
+	testHome(t)
+	defer restoreWOLHooks()
+	wolTestNet() // la machine qui réveille est 192.168.0.104, pas la cible
+	// Format où l'IP est en PREMIER (celui d'`arp -a` sur Windows, que le parseur
+	// lit) : sur Linux la table vient de `ip -4 neigh`, testé dans cmd_wol_test.go.
+	wolTestARP(
+		"192.168.0.26      b0-82-e2-46-7e-34   dynamique",
+		"192.168.0.1       bc-24-11-dc-1a-c2   dynamique",
+	)
+	origLookup := wolLookupHost
+	defer func() { wolLookupHost = origLookup }()
+
+	mac, err := wolMACForHost("192.168.0.26")
+	if err != nil {
+		t.Fatalf("IP de la table : %v", err)
+	}
+	if mac != "B082E2467E34" {
+		t.Errorf("mac = %q, attendu B082E2467E34", mac)
+	}
+
+	// Nom de machine : résolu, puis lu.
+	wolLookupHost = func(string) ([]string, error) { return []string{"192.168.0.26"}, nil }
+	mac, err = wolMACForHost("PC_BUREAU_PAPA")
+	if err != nil || mac != "B082E2467E34" {
+		t.Errorf("nom résolu : mac = %q, err = %v", mac, err)
+	}
+
+	// Absente de la table (cible routée, hors de la liaison) : une erreur, pas une
+	// MAC approximative prise sur un voisin.
+	if _, err := wolMACForHost("192.168.0.99"); err == nil {
+		t.Error("MAC inventée pour une cible absente de la table")
+	}
+
+	// Publique : l'entrée ARP d'une adresse publique port-forcée est celle du
+	// ROUTEUR. La recopier réveillerait la passerelle.
+	if _, err := wolMACForHost("8.8.8.8"); err == nil {
+		t.Error("MAC lue pour une adresse publique (c'est le routeur qui répond)")
+	}
+	// Boucle locale et adresse de CETTE machine : c'est la machine d'AJEAN, elle est
+	// déjà allumée, et son adresse n'est pas une cible de réveil. (IsPrivate() vaut
+	// false pour 127.0.0.1 : ces deux cas se testent avant le LAN, mesuré.)
+	for _, h := range []string{"127.0.0.1", "192.168.0.104"} {
+		if _, err := wolMACForHost(h); err == nil || !strings.Contains(err.Error(), "cette machine") {
+			t.Errorf("adresse locale %s : err = %v, attendu « c'est cette machine »", h, err)
+		}
+	}
+	// Nom introuvable.
+	wolLookupHost = func(string) ([]string, error) { return nil, errors.New("no such host") }
+	if _, err := wolMACForHost("pc-inconnu"); err == nil {
+		t.Error("MAC lue sur un nom introuvable")
+	}
+}
+
+// Le test de connexion RÉUSSI remonte la MAC lue, et la modale la préremplit.
+// Trois règles : la remonter seulement si le réveil est coché ; ne JAMAIS écraser
+// une MAC déjà saisie ; ne rien remonter si la table ne la donne pas.
+func TestWOLExternalTestReturnsTheLearnedMAC(t *testing.T) {
+	testHome(t)
+	defer restoreWOLHooks()
+	var udpSends int
+	wolDialUDP = func(_, _ string) (net.Conn, error) { udpSends++; return &fakeConn{}, nil }
+	wolTestNet()
+	wolTestARP("192.168.0.26      b0-82-e2-46-7e-34   dynamique")
+	orig := extTestDo
+	defer func() { extTestDo = orig }()
+	extTestDo = func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"choices":[]}`))}, nil
+	}
+	url := "http://192.168.0.26:8080/v1"
+	postTest := func(body any) map[string]any {
+		b, _ := json.Marshal(body)
+		w := httptest.NewRecorder()
+		handlePresetExternalTest(w, httptest.NewRequest("POST", "/api/preset/external/test", bytes.NewReader(b)))
+		var out map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	// Réveil coché, MAC vide : la MAC apprise est remontée.
+	out := postTest(externalSaveReq{URL: url, Model: "swift", WOL: true})
+	if out["ok"] != true {
+		t.Fatalf("test = %v, attendu ok", out)
+	}
+	if out["wol_mac"] != "B082E2467E34" {
+		t.Errorf("wol_mac = %v, attendu B082E2467E34 (la table ARP contient la cible jointe)", out["wol_mac"])
+	}
+
+	// MAC déjà saisie : elle n'est jamais écrasée, rien n'est remonté.
+	out = postTest(externalSaveReq{URL: url, Model: "swift", WOL: true, WOLMAC: "aa:bb:cc:dd:ee:ff"})
+	if out["ok"] != true {
+		t.Fatalf("test = %v, attendu ok", out)
+	}
+	if m, _ := out["wol_mac"].(string); m != "" {
+		t.Errorf("wol_mac = %v, attendu rien : une MAC saisie sur la machine prime", out["wol_mac"])
+	}
+
+	// Réveil décoché : rien à apprendre.
+	out = postTest(externalSaveReq{URL: url, Model: "swift"})
+	if out["ok"] != true {
+		t.Errorf("sans réveil coché : %v, attendu ok", out)
+	}
+	if m, _ := out["wol_mac"].(string); m != "" {
+		t.Errorf("wol_mac = %v sans réveil coché, attendu rien", out["wol_mac"])
+	}
+
+	// Cible publique (garde-fou), réveil coché : rien n'est remonté, le test passe.
+	pub := "https://api.openai.com/v1"
+	extTestDo = func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"choices":[]}`))}, nil
+	}
+	out = postTest(externalSaveReq{URL: pub, Model: "gpt", WOL: true})
+	if out["ok"] != true {
+		t.Errorf("test public = %v, attendu ok", out)
+	}
+	if m, _ := out["wol_mac"].(string); m != "" {
+		t.Errorf("wol_mac = %v sur une cible publique, attendu rien (la table ARP donne le routeur)", out["wol_mac"])
+	}
+	if udpSends != 0 {
+		t.Errorf("%d trame(s) envoyée(s) par le test, attendu 0", udpSends)
+	}
 }

@@ -140,6 +140,11 @@ func handlePresetExternalSave(w http.ResponseWriter, r *http.Request) {
 // handlePresetExternalTest tente un appel de complétion minimal vers l'endpoint
 // saisi, pour valider URL + modèle + clé avant d'enregistrer. Sur une édition
 // sans clé fournie, on réutilise la clé stockée.
+// extTestDo : la requête du bouton « tester la connexion », en variable. Le test
+// de connexion ne réveille jamais : ses tests n'ont donc pas besoin du réseau,
+// et la branche qui propose le paquet magique est exerçable sur panne injectée.
+var extTestDo = func(req *http.Request) (*http.Response, error) { return http.DefaultClient.Do(req) }
+
 func handlePresetExternalTest(w http.ResponseWriter, r *http.Request) {
 	var req externalSaveReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -176,9 +181,31 @@ func handlePresetExternalTest(w http.ResponseWriter, r *http.Request) {
 	if key != "" {
 		hreq.Header.Set("Authorization", "Bearer "+key)
 	}
-	resp, err := http.DefaultClient.Do(hreq)
+	resp, err := extTestDo(hreq)
 	if err != nil {
-		sendJSON(w, 200, map[string]any{"ok": false, "error": "injoignable : " + err.Error()})
+		out := map[string]any{"ok": false, "error": "injoignable : " + err.Error()}
+		// La sonde de la modale ne réveille JAMAIS d'elle-même. Elle peut en
+		// revanche nommer la cause quand elle y ressemble fort : un refus de
+		// connexion vers une IP privée, avec le réveil coché et une MAC saisie,
+		// c'est une machine éteinte. Le message porte alors la proposition
+		// d'envoyer le paquet magique ; c'est le clic sur le bouton qui l'envoie.
+		if host, _, herr := wolHostPort(req.URL); herr == nil {
+			switch wolWakeHint(err, host, req.WOL, req.WOLMAC) {
+			case wolHintWake:
+				// Injoignable : la machine est peut-être éteinte. Le bouton du
+				// paquet magique est au-dessus du test, la modale est ouverte sur
+				// le bloc WOL — on le nomme, on n'envoie rien.
+				out["wol"] = true
+				out["detail"] = err.Error()
+				out["error"] = fmt.Sprintf("%s ne répond pas : la machine est peut-être éteinte, envoie le paquet magique puis relance le test", host)
+			case wolHintPort:
+				// Refus de connexion = RST de la MACHINE : elle est allumée, c'est
+				// l'API qui manque. Un paquet magique n'y changerait rien.
+				out["detail"] = err.Error()
+				out["error"] = fmt.Sprintf("%s est allumée mais ne sert rien sur ce port : démarre l'API (llama-server / moteur MoE), le Wake on LAN n'y change rien", host)
+			}
+		}
+		sendJSON(w, 200, out)
 		return
 	}
 	defer resp.Body.Close()
@@ -194,7 +221,27 @@ func handlePresetExternalTest(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 200, map[string]any{"ok": false, "status": resp.StatusCode, "error": msg})
 		return
 	}
-	sendJSON(w, 200, map[string]any{"ok": true})
+	out := map[string]any{"ok": true}
+	// Test RÉUSSI = la machine est allumée et vient d'être jointe : la résolution
+	// ARP de l'instant a rempli la table. C'est LE moment où sa MAC est lisible,
+	// donc le moment où on peut l'apprendre à l'utilisateur. Le réveil coché et la
+	// MAC absente sont requis : une MAC déjà saisie n'est jamais écrasée, elle est
+	// ce que l'utilisateur a lu sur la machine, et c'est plus sûr qu'une table ARP.
+	if req.WOL && strings.TrimSpace(req.WOLMAC) == "" {
+		if mac, err := wolMACForHost(hostOf(req.URL)); err == nil && mac != "" {
+			out["wol_mac"] = mac
+		}
+	}
+	sendJSON(w, 200, out)
+}
+
+// hostOf : l'hôte de l'URL, vide si elle est illisible.
+func hostOf(rawURL string) string {
+	h, _, err := wolHostPort(rawURL)
+	if err != nil {
+		return ""
+	}
+	return h
 }
 
 // extractAPIError sort le champ error.message d'une réponse d'erreur au format

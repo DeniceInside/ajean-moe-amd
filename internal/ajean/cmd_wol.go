@@ -271,12 +271,16 @@ var (
 // wolIsLocalIP : la cible est-elle une adresse de CETTE machine ? (le réglage du
 // pilote ne se lit que sur la machine qui porte la carte).
 func wolIsLocalIP(p net.IP) bool {
-	ifas, err := net.Interfaces()
+	// Les hooks du paquet (wolInterfaces, wolAddrsOf) et non net.Interfaces :
+	// un test qui lit les interfaces RÉELLES dépend de la machine qui l'exécute.
+	// C'est ce qui est arrivé au premier run macOS ; une adresse de LAN portée par
+	// la machine de test (192.168.0.26 ici) rendait un test rouge là où il passait.
+	ifas, err := wolInterfaces()
 	if err != nil {
 		return false
 	}
 	for _, ifa := range ifas {
-		addrs, err := ifa.Addrs()
+		addrs, err := wolAddrsOf(&ifa)
 		if err != nil {
 			continue
 		}

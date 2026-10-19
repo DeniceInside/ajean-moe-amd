@@ -3819,6 +3819,8 @@ fr: {
   "wol.sending": "paquet envoyé, démarrage en cours…",
   "wol.sent": "machine réveillée, API joignable",
   "wol.send_failed": "échec du réveil",
+  "wol.test_wake": "machine éteinte : envoie le paquet magique, puis relance le test",
+  "wol.mac_learned": "MAC lue dans la table ARP et préremplie : {mac}",
   "external.saving": "enregistrement…",
   "external.saved": "API Externe enregistrée",
   "external.save_failed": "échec de l'enregistrement",
@@ -5195,6 +5197,8 @@ en: {
   "wol.sending": "packet sent, booting…",
   "wol.sent": "machine woken, API reachable",
   "wol.send_failed": "wake-up failed",
+  "wol.test_wake": "machine is off: send the magic packet, then run the test again",
+  "wol.mac_learned": "MAC read from the ARP table and prefilled: {mac}",
   "external.saving": "saving…",
   "external.saved": "external API saved",
   "external.save_failed": "save failed",
@@ -8142,12 +8146,23 @@ async function sendWOLPacket(){
 async function testExternalPreset(){
   const st = document.getElementById('s-ext-status');
   const b = {id: editingKey || '', url: cfgReadKey('EXTERNAL_URL'), model: cfgReadKey('EXTERNAL_MODEL'),
-             key: cfgReadKey('EXTERNAL_KEY'), keyTouched: true};
+             key: cfgReadKey('EXTERNAL_KEY'), keyTouched: true,
+             wol: cfgReadKey('WOL') === '1', wol_mac: cfgReadKey('WOL_MAC')};
   if(!b.url || !b.model){ st.textContent = t('external.url_model_required'); return; }
   st.textContent = t('external.testing');
   try{
     const r = await jpost('/api/preset/external/test', b);
-    st.textContent = r.ok ? '✓ '+t('external.test_ok') : '⚠ '+(r.error || t('external.test_failed'));
+    if(r.ok){
+      if(r.wol_mac){
+        const m = document.getElementById('s-ext-wol-mac');
+        if(m){ m.value = r.wol_mac; }
+        cfgWriteKey('WOL_MAC', r.wol_mac);
+        return st.textContent = '✓ '+t('external.test_ok')+' · '+t('wol.mac_learned').replace('{mac}', r.wol_mac);
+      }
+      return st.textContent = '✓ '+t('external.test_ok');
+    }
+    if(r.wol){ return st.textContent = '⚠ '+(r.error || t('wol.test_wake')); }
+    st.textContent = '⚠ '+(r.error || t('external.test_failed'));
   }catch(e){ st.textContent = '⚠ '+t('external.test_failed'); }
 }
 function setCloudState(state){ document.getElementById('m-cloud-body').dataset.state = state; }

@@ -1073,15 +1073,35 @@ async function sendWOLPacket(){
   }catch(e){ st.textContent = '⚠ '+t('wol.send_failed'); }
 }
 // Test d'un preset API externe : une complétion d'un jeton vers l'API saisie.
+// Il porte le WOL du preset, pour NOMMER la cause : sur une cible de LAN injoignable,
+// « injoignable » seul ne dit pas que la machine est éteinte. Le test ne réveille
+// JAMAIS de son propre chef — il renvoie la proposition, le clic sur le bouton du
+// paquet magique l'envoie. (Le corps de la requête de chat, lui, réveille seul.)
 async function testExternalPreset(){
   const st = document.getElementById('s-ext-status');
   const b = {id: editingKey || '', url: cfgReadKey('EXTERNAL_URL'), model: cfgReadKey('EXTERNAL_MODEL'),
-             key: cfgReadKey('EXTERNAL_KEY'), keyTouched: true};
+             key: cfgReadKey('EXTERNAL_KEY'), keyTouched: true,
+             wol: cfgReadKey('WOL') === '1', wol_mac: cfgReadKey('WOL_MAC')};
   if(!b.url || !b.model){ st.textContent = t('external.url_model_required'); return; }
   st.textContent = t('external.testing');
   try{
     const r = await jpost('/api/preset/external/test', b);
-    st.textContent = r.ok ? '✓ '+t('external.test_ok') : '⚠ '+(r.error || t('external.test_failed'));
+    if(r.ok){
+      // Test réussi = machine allumée et jointe à l'instant : le serveur a pu lire
+      // sa MAC dans la table ARP. On la préremplit (le champ et la clé), et on le
+      // dit. Jamais sur une MAC déjà saisie : ce que l'utilisateur a lu sur la
+      // machine reste ce qu'il y a de plus sûr.
+      if(r.wol_mac){
+        const m = document.getElementById('s-ext-wol-mac');
+        if(m){ m.value = r.wol_mac; }
+        cfgWriteKey('WOL_MAC', r.wol_mac);
+        return st.textContent = '✓ '+t('external.test_ok')+' · '+t('wol.mac_learned').replace('{mac}', r.wol_mac);
+      }
+      return st.textContent = '✓ '+t('external.test_ok');
+    }
+    // Réveil proposé : on rappelle le bouton, la modale est ouverte sur le bloc WOL.
+    if(r.wol){ return st.textContent = '⚠ '+(r.error || t('wol.test_wake')); }
+    st.textContent = '⚠ '+(r.error || t('external.test_failed'));
   }catch(e){ st.textContent = '⚠ '+t('external.test_failed'); }
 }
 // Comptes Modal = profils de la CLI sur la machine AJEAN. Vide = profil actif.
