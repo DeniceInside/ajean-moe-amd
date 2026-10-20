@@ -129,10 +129,31 @@ func handlePresetExternalSave(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Le preset enregistré est-il celui qui tourne ? AVEC la réponse avant l'appel :
+	// SavePreset efface la marque d'actif dès que le contenu du preset actif change.
+	wasActive := req.ID != "" && req.ID == activePresetID()
+
 	newID, err := SavePreset(req.ID, req.Name, content)
 	if err != nil {
 		sendJSON(w, 400, map[string]any{"ok": false, "error": err.Error()})
 		return
+	}
+	// Le preset qu'on vient d'enregistrer est le preset ACTIF : on applique son
+	// contenu à la config vivante. Sans ça, la modale a écrit le Wake on LAN dans
+	// le FICHIER preset, et la config qui tourne ne le contient pas — le chat lit
+	// la config vivante, donc il ne réveille jamais, alors que le bouton de la
+	// modale, lui, relit la modale et réveille. C'est l'écart exact que le user a
+	// observé. Un preset NON actif n'est pas appliqué : la bascule reste un acte
+	// explicite. applyPresetFile ne redémarre pas le service (c'est SwitchToPreset
+	// qui le fait) : une clé de routage de requête n'exige pas de redémarrage.
+	if wasActive {
+		if p, perr := safePresetPath(newID); perr == nil {
+			if aerr := applyPresetFile(p); aerr != nil {
+				sendJSON(w, 200, map[string]any{"ok": true, "id": newID, "name": req.Name,
+					"warning": "preset enregistré, mais sa configuration n'a pas pu être appliquée : " + aerr.Error()})
+				return
+			}
+		}
 	}
 	sendJSON(w, 200, map[string]any{"ok": true, "id": newID, "name": req.Name})
 }

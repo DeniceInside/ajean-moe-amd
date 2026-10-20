@@ -269,6 +269,40 @@ var (
 	wolCoolDown = map[string]time.Time{}
 )
 
+// wolNotAttempted : le réveil n'a PAS été tenté, aucune trame n'est partie. Le
+// marquer est nécessaire, pas cosmétique : le message de panne du chat dit
+// « X est éteint et ne s'est pas réveillé », et l'accuser ainsi une machine
+// qu'aucune trame n'a touchée envoie l'utilisateur vérifier un BIOS qui n'est
+// pour rien dans sa panne. Le garde-fou d'adresse est exactement ce cas.
+type wolNotAttempted struct{ err error }
+
+func (e wolNotAttempted) Error() string { return e.err.Error() }
+func (e wolNotAttempted) Unwrap() error { return e.err }
+
+// wolWakeHost : l'adresse à réveiller. L'URL d'un preset nomme souvent la machine
+// par son NOM (« http://pc-bureau:8080/v1 ») ; le Wake on LAN, lui, parle en
+// adresses — la trame part sur la diffusion locale et la table ARP est indexée par
+// adresse. Un nom n'est donc pas une cible, ce qui rendait le chat incapable de
+// réveiller là où le bouton de la modale, lui, reçoit l'IP que vous tapez.
+// Le résoudre rend les deux chemins compatibles, SANS relâcher le contrôle
+// d'adresse : une adresse publique, ou un nom qui ne résout pas en adresse de LAN,
+// ne reçoit toujours rien.
+func wolWakeHost(host string) (string, error) {
+	if net.ParseIP(host) != nil {
+		return host, nil
+	}
+	addrs, err := wolLookupHost(host)
+	if err != nil {
+		return "", fmt.Errorf("le Wake on LAN cible une adresse IP ; le nom %q ne résout pas (%v) — mettez l'adresse IP dans l'URL de l'API", host, err)
+	}
+	for _, a := range addrs {
+		if p := net.ParseIP(a); p != nil && (p.IsPrivate() || p.IsLinkLocalUnicast()) {
+			return a, nil
+		}
+	}
+	return "", fmt.Errorf("%s : résolu en adresses hors LAN, le Wake on LAN ne s'applique qu'à une machine du réseau local", host)
+}
+
 // wakeWOL accomplit le parcours demandé, dans l'ordre :
 //
 //	sonde du port → s'il répond, rien à faire → trame(s) → attente du port → nil
@@ -277,7 +311,7 @@ var (
 // erreur quand la machine n'a pas démarré. host/port viennent de l'URL du preset.
 func wakeWOL(ctx context.Context, host, port string, t wolTarget) error {
 	if err := wolGuard(host); err != nil {
-		return err
+		return wolNotAttempted{err}
 	}
 	if wolDialPort(host, port) == nil {
 		return nil // le service répond déjà : on n'envoie rien
@@ -286,7 +320,7 @@ func wakeWOL(ctx context.Context, host, port string, t wolTarget) error {
 	wolMu.Lock()
 	if !wolWakeEnabled {
 		wolMu.Unlock()
-		return fmt.Errorf("%s : hors ligne, réveil désactivé ici", host)
+		return wolNotAttempted{fmt.Errorf("%s : hors ligne, réveil désactivé ici", host)}
 	}
 	if wolWaking[key] {
 		wolMu.Unlock()
@@ -442,7 +476,13 @@ func wolLLM(ctx context.Context, req *http.Request, body []byte, ep chatEndpoint
 	if err != nil {
 		return http.DefaultClient.Do(req) // URL que le WOL ne sait pas lire : chemin normal
 	}
-	if err := wakeWOL(ctx, host, port, ep.WOL); err != nil {
+	// La requête part à l'URL du preset (un nom y a sa place, c'est le DNS qui la
+	// résoudra) ; seule la CIBLE DE RÉVEIL doit être une adresse.
+	wakeHost, err := wolWakeHost(host)
+	if err != nil {
+		return nil, wolFriendlyError(wolNotAttempted{err}, host, ep)
+	}
+	if err := wakeWOL(ctx, wakeHost, port, ep.WOL); err != nil {
 		return nil, wolFriendlyError(err, host, ep)
 	}
 	return http.DefaultClient.Do(req)
@@ -592,6 +632,13 @@ func wolCanProposeWake(mac string) bool {
 // qui dit quoi faire sur la machine réveillée — le WOL est un réglage de BIOS et
 // de pilote, pas un réglage d'AJEAN.
 func wolFriendlyError(err error, host string, ep chatEndpoint) error {
+	var na wolNotAttempted
+	if errors.As(err, &na) {
+		// Aucune trame n'est partie : le dire, et donner ce qui rend le réveil
+		// possible. Accuser la machine d'être éteinte serait l'envoyer vérifier le
+		// BIOS d'une machine qui n'a rien à voir avec la panne.
+		return fmt.Errorf("⚠️ Wake on LAN vers %s : %v", host, na.err)
+	}
 	return fmt.Errorf("⚠️ %s est éteint et ne s'est pas réveillé (%s) : %v", host, ep.WOL.MAC, err)
 }
 
