@@ -1,19 +1,16 @@
-Recherche par le sens dans le journal de Jean, retour aux outils séparés et nettoyage du code.
+Menu latéral plus clair : Paramètres, Tâches, API et AJEAN LINK refaits.
 
 ## Nouveautés
 
-- **Recherche par le sens dans le journal de Jean** : Jean retrouve un échange passé d'après ce qu'il veut dire, et plus seulement d'après les mots exacts. Sur un journal réel, la bonne entrée figure dans les cinq premiers résultats 9 fois sur 10, contre 4 fois sur 10 avec la recherche par mots. Un petit modèle d'embeddings (environ 330 Mo, téléchargé à l'activation) tourne sur le processeur, sans prendre de VRAM, et s'arrête après 20 minutes sans usage. L'index est calculé quand Jean ne génère pas, et il est chiffré si la mémoire l'est. L'option s'active dans le panneau de mémoire de Jean. La recherche par mots reste utilisée en secours.
+- **Connexion d'un appareil guidée** : la ligne « Connecter un nouvel appareil » de la section AJEAN LINK ouvre une fenêtre en trois étapes : ouvrir l'adresse d'accès distant, vérifier l'empreinte, saisir le code. Le code, valable 10 minutes et à usage unique, se copie en un clic et peut être renouvelé.
 
-## Corrections
+## Améliorations
 
-- **Outils mal appelés depuis la 0.18.2** : le regroupement des outils par domaine faisait se tromper les modèles locaux sur les paramètres (environ 6 % d'appels mal formés, contre 0,2 % avant). Les outils redeviennent séparés, comme en 0.18.1. Les conversations de la période regroupée restent lisibles.
-- **Fiches de Jean** : un nom de fiche passé sous « fiche » au lieu de « name » est maintenant accepté.
-- **Première recherche après une pause** : la recherche attend le démarrage du modèle d'embeddings (environ 2 secondes) au lieu de repasser par la recherche par mots.
-- **Recherche par mots avec une phrase** : les mots courts et les mots vides ne ramènent plus tout le journal.
-
-## Interne
-
-- Code inutilisé retiré, sans changement de comportement.
+- **API** : une carte Connexion regroupe l'adresse, le modèle et la clé, chacun avec son bouton de copie. Les actions sur la clé (générer, définir, retirer) sont dans un menu. Une carte Accès regroupe le réseau local et l'accès public.
+- **AJEAN LINK** : l'adresse d'accès distant et l'état du tunnel (en ligne ou arrêté) sont réunis sur une seule carte. L'état de la sauvegarde s'affiche sous son interrupteur.
+- **Tâches** : l'interrupteur général, la liste et l'ajout tiennent dans une seule carte. Une tâche en échec est signalée par sa pastille rouge, le message d'erreur étant visible au survol.
+- **Paramètres** : l'état de l'accès internet et du contrôle du navigateur s'affiche sous leur interrupteur. Les délais MCP sont des lignes de réglage comme les autres.
+- **Boutons** : les actions du menu (ajouter, sauvegarder, restaurer, déconnecter…) ont une icône et un fond au survol, pour ne plus se confondre avec les lignes de réglage. Les boutons de copie confirment la copie par une coche.
 
 ## Mise à jour
 

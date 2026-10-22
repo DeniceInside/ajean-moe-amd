@@ -54,7 +54,7 @@ func withDisplayName(content, name string) string {
 // configFingerprint réduit une configuration à l'ENSEMBLE TRIÉ de ses
 // affectations effectives, puis le hache. Les clés « appareil » (preservedKeys,
 // réappliquées par SwitchToPreset) sont ignorées : sans ça, les MEM_MODE /
-// CRAWL4AI_URL injectés rendraient la config active différente de TOUS les
+// HOST injectés rendraient la config active différente de TOUS les
 // presets, et aucun ne serait jamais détecté comme actif.
 func configFingerprint(m map[string]string) string {
 	pairs := make([]string, 0, len(m))
@@ -274,7 +274,7 @@ func safePresetPath(name string) (string, error) {
 // ils appartiennent au preset. Les bascules agent/internet/oai/tâches, elles, sont
 // déjà rangées dans le bucket état (bkState), hors config, donc à l'abri.
 var preservedKeys = []string{
-	"MEM_MODE", "CRAWL4AI_URL", "WEB_ENGINE", "CUDA_VISIBLE_DEVICES", "HOST",
+	"MEM_MODE", "CUDA_VISIBLE_DEVICES", "HOST",
 	"MEM_ENCRYPTED", "BACKUP_AUTO", "COMPACT", "COMPACT_MAX", "MACHINES",
 }
 

@@ -113,8 +113,9 @@ function moeRenderSettings(fit){
   const sel = (id, opts, cur) => '<select class="ctl" id="'+id+'" style="width:auto">'
     + opts.map(([v,l])=>'<option value="'+v+'"'+(String(v)===String(cur)?' selected':'')+'>'+escHtml(l)+'</option>').join('')+'</select>';
   const sw = (id, on) => '<label class="switch"><input type="checkbox" id="'+id+'"'+(on?' checked':'')+'><span class="slider"></span></label>';
+  moeSetD = d;
   const rows = [
-    [t('moe.d_ctx'), '<span class="moe-ctx"><input type="range" id="moe-s-ctx" min="32768" max="262144" step="4096" value="'+(+d.ctx||131072)+'" oninput="moeCtxLbl()"><span id="moe-s-ctx-v"></span></span>'],
+    [t('moe.d_ctx'), '<span class="moe-ctx"><input type="range" id="moe-s-ctx" min="32768" max="'+(d.ctx_max||262144)+'" step="4096" value="'+(+d.ctx||131072)+'" oninput="moeCtxLbl()"><span id="moe-s-ctx-v"></span></span>'],
     [t('moe.d_kv'), sel('moe-s-kv', [['fp16', t('moe.kv_fp16')],['int8', t('moe.kv_int8')]], d.kv)],
     [t('moe.d_mtp'), sel('moe-s-spec', [[2,'2'],[3,'3'],[4,'4']], d.spec)],
     [t('moe.s_vision'), sw('moe-s-vision', d.vision)],
@@ -129,13 +130,29 @@ function moeRenderSettings(fit){
   if(d.reserve_mib && !res.includes(d.reserve_mib)) res.push(d.reserve_mib);
   rows.push([t('moe.s_reserve'), sel('moe-s-reserve', res.sort((a,b)=>a-b).map(n=>[n, n ? (n/1024).toLocaleString('fr-FR')+' Go' : t('moe.reserve_none')]), d.reserve_mib||0)]);
   document.getElementById('moe-settings').innerHTML = rows.map(([a,b])=>
-    '<div class="moe-kv"><span>'+escHtml(a)+'</span><span>'+b+'</span></div>').join('');
+    '<div class="moe-kv"><span>'+escHtml(a)+'</span><span>'+b+'</span></div>').join('')
+    + '<div class="moe-kv" id="moe-s-ctx-h" hidden><span></span><span class="lc-mode-d">'+escHtml(t('moe.ctx_drop_cap'))+'</span></div>';
+  const hs = document.getElementById('moe-s-helper');
+  if(hs) hs.addEventListener('change', moeCtxLbl);
   moeCtxLbl();
+}
+// Le contexte maximal suit la config : en mode hors RAM (carte d'aide sans
+// partage des couches) le lancement le ramène à drop_cap, le curseur s'y arrête.
+let moeSetD = null;
+function moeCtxCap(){
+  const d = moeSetD || {}, hs = document.getElementById('moe-s-helper');
+  const helper = hs ? hs.value === 'helper' : !!d.helper_on && !d.split_layers;
+  return d.drop_cap && helper ? d.drop_cap : (d.ctx_max || 262144);
 }
 // valeur exacte en jetons (131 072 et non « 128K », source de confusion)
 function moeCtxLbl(){
   const r = document.getElementById('moe-s-ctx'), o = document.getElementById('moe-s-ctx-v');
   if(!r || !o) return;
+  const cap = moeCtxCap();
+  r.max = cap;
+  if(+r.value > cap) r.value = cap;
+  const h = document.getElementById('moe-s-ctx-h');
+  if(h) h.hidden = !(moeSetD && moeSetD.drop_cap && cap === moeSetD.drop_cap);
   o.textContent = (+r.value).toLocaleString('fr-FR');
   // partie remplie à gauche de la pastille (la piste est dessinée en CSS)
   r.style.setProperty('--p', ((r.value - r.min) / (r.max - r.min) * 100) + '%');

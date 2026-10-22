@@ -333,6 +333,15 @@ func compactBounds(msgs []Message, tailBudget int) (head, tailStart int) {
 }
 
 func compactMessages(ctx context.Context, msgs []Message, caps Caps) ([]Message, bool) {
+	// Allègement d'abord (chat_compact_light.go) : s'il suffit, pas de résumé ;
+	// sinon le résumé part du fil déjà allégé (les archives sont faites).
+	if light, ok := lightenMessages(msgs, caps); ok {
+		if lightenEnough(msgs, light) {
+			logCompact("allègement", estimateTokens(msgs), msgs, light, true)
+			return light, true
+		}
+		msgs = light
+	}
 	// Budget de queue = fraction de la CONVERSATION (pas de la fenêtre). Le lier à
 	// la fenêtre était le bug : une conversation de 25k tokens dans une fenêtre de
 	// 64k gardait 16k (0.25×64k) en queue → torse minuscule → réduction < 20% →

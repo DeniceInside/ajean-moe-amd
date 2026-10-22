@@ -43,16 +43,19 @@ function appEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&a
 
 let APPS = [], APPS_Q = '';
 
-// ---------- écran Applications ----------
+// ---------- liste des apps (vue du menu latéral, comme l'historique) ----------
+// Le bouton grille de l'en-tête bascule menu / applications ; ouvrir une app la
+// montre dans la zone de conversation, le menu reste en place.
 async function openAppsView(){
-  const v = document.getElementById('apps-view');
-  v.hidden = false;
+  if(typeof SIDE_VIEW !== 'undefined' && SIDE_VIEW === 'apps'){ showSideView('main'); return; }
   document.getElementById('apps-title').textContent = at('title');
   document.getElementById('apps-new-txt').textContent = at('new_app');
   const q = document.getElementById('apps-search'); q.placeholder = at('search'); q.value = APPS_Q;
-  await loadApps();
+  showSideView('apps');
+  await loadApps(); // après la bascule : l'animation n'attend pas le réseau
 }
-function closeAppsView(){ document.getElementById('apps-view').hidden = true; }
+// Compat : l'ancien écran se fermait ; la liste reste maintenant dans le menu.
+function closeAppsView(){}
 async function loadApps(){
   try{ const j = await jget('/api/apps'); APPS = (j && j.apps) || []; }catch(e){ APPS = []; }
   renderApps();
@@ -60,30 +63,35 @@ async function loadApps(){
 function onAppsSearch(v){ APPS_Q = v; renderApps(); }
 function appNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
 function renderApps(){
-  const grid = document.getElementById('apps-grid');
+  const box = document.getElementById('apps-list'); if(!box) return;
   const q = appNorm(APPS_Q.trim());
   const list = APPS.filter(a => !q || appNorm(a.name+' '+(a.description||'')).includes(q));
-  grid.innerHTML = '';
+  box.innerHTML = '';
   for(const a of list){
-    const tile = document.createElement('div'); tile.className = 'app-tile'; tile.tabIndex = 0;
-    tile.innerHTML = '<div class="app-ico"></div><div class="app-txt"><div class="app-name"></div><div class="app-desc"></div></div>'
-      + '<button class="app-more" type="button" aria-label="menu"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5.5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="18.5" r="1.6"/></svg></button>';
-    tile.querySelector('.app-ico').textContent = a.icon || '🧩';
-    tile.querySelector('.app-name').textContent = a.name;
-    tile.querySelector('.app-desc').textContent = a.description || (at('version')+' '+a.version);
-    tile.onclick = (e)=>{ if(e.target.closest('.app-more')) return; openApp(a.id); };
-    tile.onkeydown = (e)=>{ if(e.key==='Enter') openApp(a.id); };
-    tile.oncontextmenu = (e)=>{ e.preventDefault(); appTileMenu(tile.querySelector('.app-more'), a); };
-    tile.querySelector('.app-more').onclick = (e)=>{ e.stopPropagation(); appTileMenu(e.currentTarget, a); };
-    grid.appendChild(tile);
+    const active = !!(APP_RUN && APP_RUN.id === a.id);
+    const row = document.createElement('div'); row.className = 'sess-row app-row' + (active?' active':''); row.tabIndex = 0;
+    const ico = document.createElement('span'); ico.className = 'app-emoji'; ico.textContent = a.icon || '🧩';
+    const info = document.createElement('div'); info.className = 'sess-info';
+    const name = document.createElement('div'); name.className = 'sess-name'; name.textContent = a.name;
+    const meta = document.createElement('div'); meta.className = 'sess-meta'; meta.textContent = a.description || (at('version')+' '+a.version);
+    info.appendChild(name); info.appendChild(meta);
+    const more = document.createElement('button'); more.className = 'sess-menu-btn'; more.type = 'button'; more.innerHTML = projDotsSvg();
+    more.setAttribute('aria-label', 'menu');
+    more.onclick = (e)=>{ e.stopPropagation(); appTileMenu(more, a); };
+    row.onclick = ()=>openApp(a.id);
+    row.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openApp(a.id); } };
+    row.oncontextmenu = (e)=>{ e.preventDefault(); appTileMenu(more, a); };
+    row.appendChild(ico); row.appendChild(info); row.appendChild(more);
+    box.appendChild(row);
   }
   const emp = document.getElementById('apps-empty');
   emp.hidden = APPS.length > 0;
   document.getElementById('apps-empty-txt').textContent = at('empty');
-  document.getElementById('apps-foot').textContent = APPS.length ? at('count', {n: APPS.length, s: APPS.length > 1 ? 's' : ''}) : '';
+  document.getElementById('apps-foot').textContent = APPS.length ? String(APPS.length) : '';
 }
 async function newAppPrompt(){
-  closeAppsView();
+  closeAppRun();
+  if(document.body.classList.contains('drawer-open')) toggleSide();
   // L'outil app n'existe qu'en Projet et en Jean : Rapide n'a que le terminal,
   // Modèle de base aucun outil. Sans bascule, la demande partait dans un mode
   // où elle ne pouvait pas aboutir.
@@ -223,12 +231,17 @@ async function openApp(id, version){
   });
   fr.srcdoc = doc;
   const host = document.getElementById('app-run-body'); host.innerHTML = ''; host.appendChild(fr);
+  renderApps();
+  // Téléphone : le menu est un tiroir par-dessus, on le referme pour voir l'app.
+  if(document.body.classList.contains('drawer-open')) toggleSide();
 }
 function closeAppRun(){
+  const was = !!APP_RUN;
   if(APP_RUN && APP_RUN.port) try{ APP_RUN.port.close(); }catch(_){}
   APP_RUN = null;
   const ov = document.getElementById('app-run'); if(!ov) return;
   ov.hidden = true; document.getElementById('app-run-body').innerHTML = '';
+  if(was) renderApps();
 }
 addEventListener('keydown', (e)=>{ if(e.key==='Escape' && APP_RUN && !document.querySelector('.modal.show')) closeAppRun(); });
 

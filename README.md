@@ -140,12 +140,10 @@ These tools are given to the model only when agent mode is on.
 
 **Memory.** Per project, four settings: *injected* (the index is loaded up front), *search* (the AI looks things up when needed, lighter on context), *on demand* (only when you ask), or *off*.
 
-**Web.** `web_search`, `web_open`, `web_read` and `web_grep`. The built-in engine works out of the box. For pages that need JavaScript, connect a [Crawl4AI](https://github.com/unclecode/crawl4ai) server you host:
+**Web.** `web_search`, `web_open`, `web_read` and `web_grep`, with the built-in engine: nothing to install. It reads pages served as HTML, without running their JavaScript.
 
 ```bash
-ajean internet on                          # built-in engine
-ajean internet engine crawl4ai             # or a Crawl4AI server
-ajean internet url http://localhost:11235
+ajean internet on
 ```
 
 **Browser control.** With `ajean computer on`, the AI drives a real Chrome, Chromium or Edge on the machine: open a page, click, type, scroll. It targets elements through the accessibility tree, so it works even with small text-only models. You see a live preview while it browses.
@@ -283,7 +281,7 @@ AI
   agent [on|off|status]         give the AI its tools
   computer [on|off|status]      browser control
   memory [off|ondemand|always|search|status]
-  internet [on|off|status|engine <go|crawl4ai>|url <url>|key <key>]
+  internet [on|off|status]
 
 Remote access (ajean.link)
   link <token> | link code | link status | link logout | link newid

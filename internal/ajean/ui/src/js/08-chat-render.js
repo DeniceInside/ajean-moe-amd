@@ -544,6 +544,7 @@ async function clearJeanContext(){
 // Nouvelle conversation : le fil s'efface en fondu AVANT la demande au serveur,
 // puis son reset vide le chat (chatClearAnimated) et le fil vierge apparaît.
 function resetChat(){
+  if(typeof closeAppRun==='function') closeAppRun();
   if(MODE==='jean'){ openJean(); return; } // Jean : une seule conversation, on y revient
   const chat=document.getElementById('chat');
   const go=()=>{ jfetch('/api/chat/reset',{method:'POST'}).catch(()=>{}); toast(t('chat.new_conversation')); };
@@ -591,20 +592,32 @@ function newChatFromTop(){
 let HIST_VIEW=false;
 const SIDE_ICON_HIST='<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>';
 const SIDE_ICON_MENU='<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg>';
-function showSideView(hist){
-  const main=document.getElementById('side-main'), h=document.getElementById('side-hist');
-  const side=document.getElementById('side'), btn=document.getElementById('hist-toggle');
-  if(!main||!h) return;
-  HIST_VIEW=hist;
-  if(btn){
-    // Pas d'état « enfoncé » : l'icône change, directement (pas d'animation).
-    // Horloge = aller à l'historique, lignes de menu = revenir au menu.
+// Trois vues : 'main' (menu), 'hist' (historique), 'apps' (applications).
+// showSideView(true/false) reste valable : historique / menu.
+let SIDE_VIEW='main';
+const SIDE_ICON_APPS='<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>';
+function showSideView(view){
+  if(view===true) view='hist'; else if(view===false || !view) view='main';
+  const views={main:document.getElementById('side-main'), hist:document.getElementById('side-hist'), apps:document.getElementById('side-apps')};
+  const side=document.getElementById('side');
+  if(!views.main||!views.hist||!views[view]) return;
+  const from=SIDE_VIEW;
+  if(from===view) return;
+  SIDE_VIEW=view; HIST_VIEW=view==='hist';
+  // Pas d'état « enfoncé » : l'icône change, directement (pas d'animation).
+  // L'icône de la vue affichée devient « lignes de menu » = revenir au menu.
+  const setBtn=(id, on, icon, tk)=>{
+    const btn=document.getElementById(id); if(!btn) return;
     btn.classList.remove('on');
-    btn.innerHTML = hist ? SIDE_ICON_MENU : SIDE_ICON_HIST;
-    btn.title = t(hist ? 'chat.back_to_menu' : 'chat.history_btn');
+    btn.innerHTML = on ? SIDE_ICON_MENU : icon;
+    btn.title = on ? t('chat.back_to_menu') : (tk.indexOf('.')>0 ? t(tk) : tk);
     btn.setAttribute('aria-label', btn.title);
-  }
-  const show=hist?h:main, hide=hist?main:h;
+  };
+  setBtn('hist-toggle', view==='hist', SIDE_ICON_HIST, 'chat.history_btn');
+  setBtn('apps-toggle', view==='apps', SIDE_ICON_APPS, typeof at==='function' ? at('title') : 'Applications');
+  const show=views[view], hide=views[from];
+  // Vers une sous-vue : arrive de la droite ; retour au menu : de la gauche.
+  const hist=view!=='main';
   // Pas de barre de défilement flottante pendant la bascule (fondu rapide).
   SIDE_THUMB_QUIET_UNTIL=Date.now()+450;
   const th=document.getElementById('side-thumb'); if(th) th.classList.remove('on');
@@ -614,7 +627,7 @@ function showSideView(hist){
   // Les deux vues bougent EN MÊME TEMPS : celle qui part passe en surimpression
   // (absolue, hors flux) et s'efface pendant que l'autre entre. Aucun instant
   // sans contenu, donc rien ne saute.
-  [main,h].forEach(v=>v.classList.remove('leave-l','leave-r','enter-l','enter-r','ghost'));
+  Object.values(views).forEach(v=>{ if(!v) return; v.classList.remove('leave-l','leave-r','enter-l','enter-r','ghost'); if(v!==show && v!==hide) v.hidden=true; });
   hide.classList.add('ghost');
   show.classList.add(hist?'enter-r':'enter-l'); show.hidden=false;
   if(side) side.scrollTop=0;
@@ -626,7 +639,7 @@ function showSideView(hist){
   },270);
 }
 function toggleHistoryView(){
-  showSideView(!HIST_VIEW);
+  showSideView(HIST_VIEW ? 'main' : 'hist');
   if(HIST_VIEW) loadHistory(); // après la bascule : l'animation n'attend pas le réseau
 }
 // Compat : anciens appels (ouvrir = afficher l'historique, fermer = revenir au
@@ -798,6 +811,7 @@ async function clearAllHistory(){
   loadHistory();
 }
 async function restoreHistory(id, mode){
+  if(typeof closeAppRun==='function') closeAppRun();
   let r; try{ r = await jpost('/api/chat/history/restore', {id}); }catch(_){ toast(t('chat.session.network_error')); return; }
   if(!r.ok){ toast(r.error || t('chat.session.open_error')); return; }
   closeHistoryModal();

@@ -50,7 +50,10 @@ func jeanLooksSecret(v string) bool {
 // jeanCleanUserText : le texte de l'utilisateur tel qu'il l'a écrit, sans les
 // notes du harnais (pièces jointes) : pour le journal et la révision.
 func jeanCleanUserText(s string) string {
-	s = strings.TrimSpace(jeanStripNow(strings.TrimSpace(s)))
+	if i := strings.Index(s, jeanRecallMark); i >= 0 { // le rappel joint au message (jean_recall.go)
+		s = s[:i]
+	}
+	s = strings.TrimSpace(jeanStripCarry(jeanStripNow(strings.TrimSpace(s))))
 	if strings.HasPrefix(s, "Image jointe à ce message") || strings.HasPrefix(s, "Images jointes à ce message") {
 		lines := strings.Split(s, "\n")
 		var names []string

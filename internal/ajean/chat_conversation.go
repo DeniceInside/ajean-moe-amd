@@ -498,6 +498,18 @@ func (c *Conversation) StartTurn(text string, files []attachInfo, caps Caps, tem
 	if fresh {
 		reconcileMemIndex()
 	}
+	// Mode Jean : la mémoire qui correspond au message, calculée hors verrou (le
+	// moteur d'embeddings peut prendre un instant). Rien quand rien ne correspond.
+	recall := ""
+	if caps.Jean {
+		c.mu.Lock()
+		isJean := c.ID == jeanConvID
+		since := jeanContextSince(c.Log, len(c.Messages) == 0 || jeanIdleExpired(c.Log, time.Now()))
+		c.mu.Unlock()
+		if isJean {
+			recall = jeanRecallFor(text, since)
+		}
+	}
 	c.mu.Lock()
 	if c.Generating {
 		c.mu.Unlock()
@@ -557,7 +569,12 @@ func (c *Conversation) StartTurn(text string, files []attachInfo, caps Caps, tem
 	if caps.Jean {
 		// Ce que l'arrière-plan a appris depuis (jean_notes.go), sauf sur un contexte
 		// neuf : le bloc mémoire qu'on vient d'y mettre est déjà à jour.
-		prompt = "[" + jeanNow() + "] " + jeanTakeNotes(len(c.Messages) <= 1) + prompt
+		// Contexte vidé après une pause : le dernier échange d'avant suit, en court,
+		// pour qu'un « et du coup ? » le lendemain ait encore de quoi répondre.
+		if jeanIdleCleared {
+			prompt = jeanCarryNote(jeanOld) + prompt
+		}
+		prompt = "[" + jeanNow() + "] " + jeanTakeNotes(len(c.Messages) <= 1) + prompt + recall
 	}
 	c.Messages = append(c.Messages, Message{Role: "user", Content: userMessageContent(files, prompt)})
 	epoch := c.epoch
@@ -919,7 +936,10 @@ func (c *Conversation) generate(ctx context.Context, caps Caps, temperature floa
 	// Mode Jean : l'échange part au journal (froid), sans coût pour le modèle.
 	if caps.Jean && !stale && ctx.Err() == nil {
 		jeanLogExchange(jeanTurnUserText(msgs), jeanVisibleAnswer(extra, content.String()))
-		jeanReflectNoteTurn(caps, temperature, jeanTurnUserText(msgs), jeanRuleViolations(content.String()), jeanFichesRead(extra), jeanToolCallCount(extra))
+		// Une fiche donnée en entier par le rappel compte comme suivie : le message
+		// suivant la crédite ou la corrige, comme une fiche ouverte (jean_recall.go).
+		read := append(jeanFichesRead(extra), jeanTakeRecalled()...)
+		jeanReflectNoteTurn(caps, temperature, jeanTurnUserText(msgs), jeanRuleViolations(content.String()), read, jeanToolCallCount(extra))
 	}
 
 	// Compaction de FIN DE TOUR. C'était LE trou : le seuil n'était testé qu'au

@@ -39,8 +39,19 @@ const (
 var jeanMemDirty atomic.Bool
 
 var jeanConsolidateTimer struct {
-	t *time.Timer
+	t   *time.Timer
+	due time.Time // échéance à l'heure murale
+	gen uint64    // un pas d'un minuteur remplacé ne relance rien
 }
+
+// jeanConsolidateStep : le minuteur avance par pas d'au plus une minute et compare
+// l'heure murale à l'échéance. Un seul time.AfterFunc suit l'horloge monotone, qui
+// s'arrête pendant une veille (WSL2, Mac, Linux en S3) : la consolidation partait
+// en retard de toute la durée de la veille, parfois hors de la nuit (#159).
+const jeanConsolidateStep = time.Minute
+
+// jeanLockedLogged : « mémoire verrouillée » n'est écrit qu'une fois par attente.
+var jeanLockedLogged atomic.Bool
 
 func jeanConsolidateDelay() time.Duration {
 	if n, err := strconv.Atoi(os.Getenv("AJEAN_JEAN_CONSOLIDATE_DELAY")); err == nil && n > 0 {
@@ -59,7 +70,28 @@ func jeanConsolidateArmLocked(d time.Duration) {
 	if jeanConsolidateTimer.t != nil {
 		jeanConsolidateTimer.t.Stop()
 	}
-	jeanConsolidateTimer.t = time.AfterFunc(d, runJeanConsolidate)
+	jeanConsolidateTimer.gen++
+	jeanConsolidateTimer.due = time.Now().Round(0).Add(d) // Round(0) : sans lecture monotone
+	jeanConsolidateTimer.t = time.AfterFunc(min(d, jeanConsolidateStep), jeanConsolidateTick(jeanConsolidateTimer.gen))
+}
+
+// jeanConsolidateTick : un pas du minuteur ; lance la consolidation une fois
+// l'échéance murale passée, sinon reprogramme le pas suivant.
+func jeanConsolidateTick(gen uint64) func() {
+	return func() {
+		jeanReflect.mu.Lock()
+		if gen != jeanConsolidateTimer.gen {
+			jeanReflect.mu.Unlock()
+			return
+		}
+		if left := jeanConsolidateTimer.due.Sub(time.Now().Round(0)); left > 0 {
+			jeanConsolidateTimer.t = time.AfterFunc(min(left, jeanConsolidateStep), jeanConsolidateTick(gen))
+			jeanReflect.mu.Unlock()
+			return
+		}
+		jeanReflect.mu.Unlock()
+		runJeanConsolidate()
+	}
 }
 
 // jeanConsolidateArmAtStart : au démarrage du serveur. Le minuteur ne vit qu'en
@@ -71,14 +103,38 @@ func jeanConsolidateArmAtStart() {
 	if !jeanReflectEnabled() || !jeanMemChangedSinceConsolidation() {
 		return
 	}
-	d := jeanUntilSleepWindow(time.Now())
+	now := time.Now()
+	d, why := jeanUntilSleepWindow(now), "mémoire modifiée depuis la dernière"
+	if jeanSleepWindowMissed(now) {
+		// une nuit est passée sans elle (machine éteinte, en veille, mémoire
+		// verrouillée à 3 h) : rattrapage, après le démarrage du moteur (#166)
+		d, why = 10*time.Minute, "nuit manquée, rattrapage"
+	}
 	if d == 0 {
 		d = 5 * time.Minute // déjà dans la plage : laisser le moteur démarrer
 	}
 	jeanReflect.mu.Lock()
 	jeanConsolidateArmLocked(d)
 	jeanReflect.mu.Unlock()
-	fmt.Fprintf(os.Stderr, "[jean] consolidation programmée vers %s (mémoire modifiée depuis la dernière)\n", time.Now().Add(d).In(loc(defaultTaskTZ())).Format("02/01 15:04"))
+	fmt.Fprintf(os.Stderr, "[jean] consolidation programmée vers %s (%s)\n", now.Add(d).In(loc(defaultTaskTZ())).Format("02/01 15:04"), why)
+}
+
+// jeanSleepWindowMissed : une plage de nuit s'est terminée après un changement de
+// mémoire sans qu'aucune consolidation n'ait suivi. Sur un poste éteint la nuit, la
+// consolidation était sinon reportée à chaque démarrage au 3 h suivant, lui aussi
+// manqué : jamais faite (#166). Une machine allumée la nuit a consolidé dans sa
+// plage, donc rien ne change pour elle.
+func jeanSleepWindowMissed(now time.Time) bool {
+	last, changed := jeanMemTimes()
+	if !changed.After(last) {
+		return false
+	}
+	n := now.In(loc(defaultTaskTZ()))
+	end := time.Date(n.Year(), n.Month(), n.Day(), jeanSleepToHour, 0, 0, 0, n.Location())
+	if end.After(n) {
+		end = end.AddDate(0, 0, -1) // la dernière plage terminée
+	}
+	return changed.Before(end)
 }
 
 // jeanTurnCaps : les réglages du dernier tour Jean, ou ceux d'un tour Jean par
@@ -124,7 +180,7 @@ func runJeanConsolidate() {
 		return
 	}
 	if os.Getenv("AJEAN_JEAN_CONSOLIDATE_DELAY") == "" {
-		if d := jeanUntilSleepWindow(time.Now()); d > 0 {
+		if d := jeanUntilSleepWindow(time.Now()); d > 0 && !jeanSleepWindowMissed(time.Now()) {
 			jeanReflect.mu.Lock()
 			jeanConsolidateArmLocked(d)
 			jeanReflect.mu.Unlock()
@@ -132,6 +188,31 @@ func runJeanConsolidate() {
 			return
 		}
 	}
+	// Occupé ou mémoire verrouillée : on repasse plus tard SANS rien basculer. La
+	// bascule vers le preset du sommeil redémarre le moteur ; faite avant ce
+	// contrôle, elle coupait une réponse en cours pour rien (#162).
+	busy := conv.isGenerating()
+	jeanReflect.mu.Lock()
+	if busy || jeanReflect.cancel != nil {
+		jeanConsolidateArmLocked(10 * time.Minute)
+		jeanReflect.mu.Unlock()
+		return
+	}
+	jeanReflect.mu.Unlock()
+	if memEncActive() && !memUnlocked() {
+		// Après un démarrage à froid, la clé n'arrive qu'au déverrouillage (qui
+		// reprogramme aussi) : on réessaie, au lieu d'abandonner jusqu'au prochain
+		// échange avec Jean (#159).
+		if !jeanLockedLogged.Swap(true) {
+			fmt.Fprintf(os.Stderr, "[jean] consolidation en attente : mémoire verrouillée\n")
+		}
+		jeanReflect.mu.Lock()
+		jeanConsolidateArmLocked(30 * time.Minute)
+		jeanReflect.mu.Unlock()
+		return
+	}
+	jeanLockedLogged.Store(false)
+
 	// Une révision encore due passe d'abord : elle voit le fil, pas nous.
 	jeanReflect.mu.Lock()
 	pending := jeanReflect.pending + jeanReflect.orphanN
@@ -163,9 +244,10 @@ func runJeanConsolidate() {
 	}
 
 	// Ordre des verrous : c.mu jamais sous jeanReflect.mu (voir runJeanReflect).
+	// (Revu après la bascule : une conversation a pu démarrer pendant le chargement.)
 	c := conv
 	c.mu.Lock()
-	busy := c.Generating
+	busy = c.Generating
 	c.mu.Unlock()
 	jeanReflect.mu.Lock()
 	if busy || jeanReflect.cancel != nil || !healthCheck() {
@@ -185,6 +267,7 @@ func runJeanConsolidate() {
 		fmt.Fprintf(os.Stderr, "[jean] consolidation impossible : %v\n", err)
 		jeanReflect.mu.Lock()
 		jeanReflect.cancel = nil
+		jeanConsolidateArmLocked(30 * time.Minute) // à retenter, pas perdue (#159)
 		jeanReflect.mu.Unlock()
 		return
 	}
@@ -318,6 +401,8 @@ func jeanMemoryDump() (string, error) {
 			fmt.Fprintf(&b, "- %s %s: %s%s\n", e.When.In(userLoc).Format("2006-01-02 15:04"), e.Kind, clipRunes(text, 300), mark)
 		}
 	}
+	// Les erreurs qui reviennent (jean_consolidate_brief.go).
+	b.WriteString(jeanBriefSections())
 	return b.String(), nil
 }
 
@@ -332,6 +417,7 @@ Below is your whole long-term memory. Tidy it so that future you finds the right
 6. Overlapping fiches (same task, or one tool/method replaced by a newer one): the newer fiche is the reference. Merge what is still true into it, then make the older one point to it (jean_patch) or jean_forget it if nothing is left. A fiche must never send you to an outdated method.
 7. A fiche section "## Restauré (à réintégrer)" holds lines a past tidy-up lost by mistake: put each back where it belongs in that fiche (jean_patch), then remove the section.
 8. Dead weight: a fiche not opened for 60+ days and not changed recently, about something that is over or replaced (an old one-off project, an abandoned method) → jean_forget it: it is archived, not lost (jean_search still finds it, reading it brings it back). Keep fiches for things that come back from time to time (yearly events, rare but real procedures). Profile lines about things that are over → jean_forget.
+9. ERRORS MET AGAIN AND AGAIN (if listed): make sure a lesson, or the fiche of that task, says what works, so the error is not met again.
 Rules: never invent anything; never delete something true and useful; prefer few precise edits. If everything is already clean, change nothing.
 When done, reply with one short line saying what you changed (or just OK).`
 }
@@ -350,7 +436,13 @@ func jeanMarkConsolidated() {
 // jeanMemChangedSinceConsolidation : un fichier du profil, des leçons ou d'une
 // fiche est-il plus récent que la dernière consolidation ?
 func jeanMemChangedSinceConsolidation() bool {
-	var last time.Time
+	last, changed := jeanMemTimes()
+	return changed.After(last)
+}
+
+// jeanMemTimes : la date de la dernière consolidation et celle du dernier
+// changement du profil, des leçons ou d'une fiche.
+func jeanMemTimes() (last, changed time.Time) {
 	if st, err := os.Stat(filepath.Join(jeanDir(), jeanConsolidatedMark)); err == nil {
 		last = st.ModTime()
 	}
@@ -360,11 +452,11 @@ func jeanMemChangedSinceConsolidation() bool {
 		if n != jeanProfileFile && n != jeanLessonsFile && !(strings.HasPrefix(n, jeanFichePrefix) && strings.HasSuffix(n, ".md")) {
 			continue
 		}
-		if info, err := e.Info(); err == nil && info.ModTime().After(last) {
-			return true
+		if info, err := e.Info(); err == nil && info.ModTime().After(changed) {
+			changed = info.ModTime()
 		}
 	}
-	return false
+	return last, changed
 }
 
 // jeanStaleChange : le contenu d'une entrée du journal (après « : ») a-t-il

@@ -318,6 +318,10 @@ type moeDetails struct {
 	Vision    bool `json:"vision"`
 	// Reserve : VRAM laissée libre sur la carte principale (écran, bureau), en Mio.
 	Reserve int `json:"reserve_mib"`
+	// CtxMax : contexte maximal du réglage ; DropCap : celui du mode hors RAM
+	// (carte d'aide, sans partage des couches), que moeBuildConfig impose.
+	CtxMax  int `json:"ctx_max"`
+	DropCap int `json:"drop_cap,omitempty"`
 }
 
 // moeDetailsFor lit un preset installé et calcule sa config de lancement.
@@ -378,6 +382,10 @@ func moeDetailsFor(presetID string, env moeEnv) *moeDetails {
 	}
 	d.Vision = pc["MOE_VISION"] != "0"
 	d.Reserve = moeDisplayReserve(pc)
+	d.CtxMax = moeMaxCtx
+	if pc["MOE_DROP"] == "1" {
+		d.DropCap = moeDropMaxCtx
+	}
 	if v, ok := out["vision"].(map[string]any); ok && d.Vision {
 		if dev, has := v["cuda_device"]; has {
 			d.VisionGPU = gpuName(fmt.Sprint(dev))
@@ -1340,6 +1348,11 @@ func moeApplySettings(content string, r moeSettingsReq) (string, error) {
 		return "", fmt.Errorf("répartition inconnue : %s", r.Split)
 	case r.Reserve != nil && (*r.Reserve < 0 || *r.Reserve > moeMaxReserveMiB):
 		return "", fmt.Errorf("réserve de VRAM hors limites : %d Mio", *r.Reserve)
+	}
+	// mode hors RAM (carte d'aide sans partage des couches) : le lancement ramène
+	// le contexte à moeDropMaxCtx ; le preset garde la valeur qui tourne
+	if parseEnv(content)["MOE_DROP"] == "1" && r.Helper && r.Split != "layers" && r.Ctx > moeDropMaxCtx {
+		r.Ctx = moeDropMaxCtx
 	}
 	set := map[string]string{
 		"CTX": strconv.Itoa(r.Ctx), "MOE_KV": r.KV, "MOE_SPEC": strconv.Itoa(r.Spec),

@@ -140,12 +140,10 @@ Ces outils ne sont fournis au modèle que lorsque le mode agent est activé.
 
 **Mémoire.** Par projet, quatre réglages : *injectée* (l'index est chargé d'avance), *recherche* (l'IA cherche quand elle en a besoin, plus léger pour le contexte), *sur demande* (seulement si vous le demandez) ou *désactivée*.
 
-**Web.** `web_search`, `web_open`, `web_read` et `web_grep`. Le moteur intégré fonctionne tel quel. Pour les pages qui demandent du JavaScript, connectez un serveur [Crawl4AI](https://github.com/unclecode/crawl4ai) que vous hébergez :
+**Web.** `web_search`, `web_open`, `web_read` et `web_grep`, avec le moteur intégré : rien à installer. Il lit les pages servies en HTML, sans exécuter leur JavaScript.
 
 ```bash
-ajean internet on                          # moteur intégré
-ajean internet engine crawl4ai             # ou un serveur Crawl4AI
-ajean internet url http://localhost:11235
+ajean internet on
 ```
 
 **Pilotage du navigateur.** Avec `ajean computer on`, l'IA pilote un vrai Chrome, Chromium ou Edge sur la machine : ouvrir une page, cliquer, saisir, faire défiler. Elle cible les éléments par l'arbre d'accessibilité, ce qui marche même avec de petits modèles sans vision. Un aperçu en direct montre ce qu'elle fait.
@@ -285,7 +283,7 @@ IA
   agent [on|off|status]         donner ses outils à l'IA
   computer [on|off|status]      pilotage du navigateur
   memory [off|ondemand|always|search|status]
-  internet [on|off|status|engine <go|crawl4ai>|url <url>|key <clé>]
+  internet [on|off|status]
 
 Accès distant (ajean.link)
   link <jeton> | link code | link status | link logout | link newid

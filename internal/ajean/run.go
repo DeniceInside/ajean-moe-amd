@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const Version = "0.18.4"
+const Version = "0.18.9"
 
 // Main est le vrai main() du binaire (cmd/ajean ne fait que l'appeler).
 func Main() {
@@ -158,8 +158,8 @@ Interaction:
   agent [on|off|status]         donne à l'IA ses outils (shell, fichiers, mémoire)
   computer [on|off|status]      contrôle du navigateur (l'IA pilote un Chrome local)
   memory [off|ondemand|always|search|status]  mode mémoire de l'IA
-  internet [on|off|status|engine <go|crawl4ai>|url <url>|key <clé>]
-                                accès web de l'IA (moteur intégré ou serveur Crawl4AI)
+  internet [on|off|status]
+                                accès web de l'IA (moteur intégré)
 
 Accès distant (ajean.link) :
   link <token>                  enregistre le jeton et ouvre le tunnel

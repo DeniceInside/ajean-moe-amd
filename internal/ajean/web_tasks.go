@@ -72,7 +72,7 @@ func handleTasks(w http.ResponseWriter, r *http.Request) {
 		"projects":     projects,
 		// État global mémoire/web, pour proposer des défauts cohérents à la création.
 		"mem_on": memMode() != MemOff,
-		"web_on": internetEnabled() && crawlReachable(),
+		"web_on": internetEnabled(),
 	})
 }
 

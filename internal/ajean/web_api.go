@@ -801,12 +801,6 @@ func handleComputer(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleInternet pilote l'accès web de l'IA (serveur Crawl4AI).
-//
-//	GET  → {enabled, url, reachable}
-//	POST {enabled, url, key} → enregistre CRAWL4AI_URL / CRAWL4AI_KEY + le
-//	drapeau .internet_enabled. La clé n'est jamais relue par GET (juste un indice).
-//
 // handleAPIKey expose et pilote la clé d'accès à l'endpoint compatible OpenAI
 // (llama-server /v1). GET renvoie l'état ; POST {action:"generate"|"set"|"clear",
 // key?} l'écrit puis redémarre le service (llama-server lit --api-key au lancement).
@@ -898,43 +892,16 @@ func localIP() string {
 	return "localhost"
 }
 
+// handleInternet pilote l'accès web de l'IA (moteur intégré).
+//
+//	GET  → {enabled}
+//	POST {enabled} → l'interrupteur.
 func handleInternet(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		var req struct {
-			Enabled *bool   `json:"enabled"`
-			URL     *string `json:"url"`
-			Key     *string `json:"key"`
-			Engine  *string `json:"engine"`
+			Enabled *bool `json:"enabled"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		// Moteur web : "go" (intégré, rien à installer) ou "crawl4ai" (serveur
-		// externe, rendu JavaScript).
-		if req.Engine != nil {
-			if err := setWebEngine(strings.ToLower(strings.TrimSpace(*req.Engine))); err != nil {
-				sendJSON(w, 400, map[string]any{"ok": false, "error": err.Error()})
-				return
-			}
-		}
-		// Clé d'accès au serveur Crawl4AI : chaîne vide = on l'enlève.
-		if req.Key != nil {
-			if err := writeCrawlKey(strings.TrimSpace(*req.Key)); err != nil {
-				sendJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
-				return
-			}
-			reachMu.Lock()
-			reachURL = ""
-			reachMu.Unlock()
-		}
-		if req.URL != nil {
-			u := strings.TrimRight(strings.TrimSpace(*req.URL), "/")
-			if err := SetConfigKey("CRAWL4AI_URL", u); err != nil {
-				sendJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
-				return
-			}
-			reachMu.Lock()
-			reachURL = "" // invalide le cache de reachability
-			reachMu.Unlock()
-		}
 		if req.Enabled != nil {
 			if err := setInternetEnabled(*req.Enabled); err != nil {
 				sendJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
@@ -942,23 +909,7 @@ func handleInternet(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// La clé n'est JAMAIS renvoyée en clair : l'UI n'a besoin que de savoir
-	// qu'elle existe (et de ses 4 derniers caractères pour la reconnaître).
-	key, hint := crawl4aiKey(), ""
-	if n := len([]rune(key)); n > 4 {
-		hint = "…" + string([]rune(key)[n-4:])
-	} else if key != "" {
-		hint = "…"
-	}
-	sendJSON(w, 200, map[string]any{
-		"ok":        true,
-		"enabled":   internetEnabled(),
-		"engine":    webEngine(),
-		"url":       crawl4aiURL(),
-		"reachable": crawlReachable(),
-		"key_set":   key != "",
-		"key_hint":  hint,
-	})
+	sendJSON(w, 200, map[string]any{"ok": true, "enabled": internetEnabled()})
 }
 
 // ─── Serveurs MCP ────────────────────────────────────────────────────────────
@@ -1242,10 +1193,11 @@ func handleMemUnlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setMemDEK(dek)
-	resumeMemMigration()      // si une migration attendait le déverrouillage
-	reloadEncryptedStores()   // recharge la conversation chiffrée en RAM
-	startSlimArchives()       // allègement des anciennes conversations (attendait la clé)
-	startHistSearchBackfill() // index plein-texte des archives (attendait la clé), #98
+	resumeMemMigration()           // si une migration attendait le déverrouillage
+	reloadEncryptedStores()        // recharge la conversation chiffrée en RAM
+	startSlimArchives()            // allègement des anciennes conversations (attendait la clé)
+	startHistSearchBackfill()      // index plein-texte des archives (attendait la clé), #98
+	go jeanConsolidateArmAtStart() // une consolidation empêchée par le verrou (#159)
 	// Migration douce : chiffre les conversations restées en clair (ex. mémoire
 	// activée avant que le chiffrement des conversations existe). Idempotent :
 	// n'encode que ce qui ne l'est pas encore.

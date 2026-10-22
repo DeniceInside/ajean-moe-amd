@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 const (
@@ -256,8 +255,8 @@ func runShell(parent context.Context, command string, timeoutSec int) string {
 			return fmt.Sprintf("[erreur: %v]", err)
 		}
 	}
-	out := tailOutput(stdout.String())
-	errOut := tailOutput(stderr.String())
+	out := cmdOutput(stdout.String())
+	errOut := cmdOutput(stderr.String())
 	parts := []string{fmt.Sprintf("exit: %d", exit)}
 	if out != "" {
 		parts = append(parts, "stdout:\n"+out)
@@ -345,18 +344,32 @@ func fileEditIn(ctx context.Context, path, oldText, newText string) string {
 	}
 	content := string(b)
 	n := strings.Count(content, oldText)
-	if n == 0 {
+	note := ""
+	var updated string
+	switch {
+	case n > 1:
+		return fmt.Sprintf("[erreur] old apparaît %d fois — ajoute du contexte pour le rendre unique", n)
+	case n == 1:
+		updated = strings.Replace(content, oldText, newText, 1)
+	default:
 		// Modification déjà en place : on le dit clairement plutôt que de renvoyer
 		// une erreur, sinon le modèle croit avoir échoué et recommence.
 		if newText != "" && strings.Contains(content, newText) {
 			return "[ok] déjà à jour — le fichier contient déjà cette modification"
 		}
-		return "[erreur] old introuvable dans le fichier"
+		// Le passage aux espaces près (indentation, tabulations, espace final),
+		// s'il n'y en a qu'un ; sinon le passage le plus proche, à recopier
+		// (chat_tools_loose.go).
+		loose, at, ok := looseEdit(content, oldText, newText)
+		if !ok {
+			if near := closestPassage(content, oldText); near != "" {
+				return "[erreur] old introuvable dans le fichier. Voici le passage le plus proche (numéro de ligne, tabulation, texte). Recopie-le exactement, sans les numéros :\n" + near
+			}
+			return "[erreur] old introuvable dans le fichier"
+		}
+		updated = loose
+		note = fmt.Sprintf(", passage retrouvé aux espaces près à la ligne %d", at)
 	}
-	if n > 1 {
-		return fmt.Sprintf("[erreur] old apparaît %d fois — ajoute du contexte pour le rendre unique", n)
-	}
-	updated := strings.Replace(content, oldText, newText, 1)
 	// Préserve les permissions d'origine (un script 0755 doit rester exécutable).
 	mode := os.FileMode(0o644)
 	if fi, err := os.Stat(path); err == nil {
@@ -365,26 +378,5 @@ func fileEditIn(ctx context.Context, path, oldText, newText string) string {
 	if err := os.WriteFile(path, []byte(updated), mode); err != nil {
 		return "[erreur] " + err.Error()
 	}
-	return fmt.Sprintf("[ok] %s modifié (1 remplacement)", path)
-}
-
-// tailOutput garde la FIN d'une sortie de commande (toolMaxOutput runes) et dit
-// explicitement ce qui a été coupé. La coupe était silencieuse : le modèle
-// croyait voir toute la sortie, et la bulle affichait toujours ~2004 tok sans
-// qu'on sache pourquoi.
-func tailOutput(s string) string {
-	n := utf8.RuneCountInString(s)
-	if n <= toolMaxOutput {
-		return s
-	}
-	return fmt.Sprintf("[sortie tronquée : %d caractères au total, seuls les %d derniers sont gardés]\n", n, toolMaxOutput) + tailRunes(s, toolMaxOutput)
-}
-
-// tailRunes returns the last n runes of s (used to cap tool output).
-func tailRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[len(r)-n:])
+	return fmt.Sprintf("[ok] %s modifié (1 remplacement%s)", path, note)
 }

@@ -52,7 +52,7 @@ var knownLoanwords = map[string]bool{
 	"chat.tool.see_image_head": true, "chat.tool.see_image_lbl": true,
 	"chat.tool.tracker_head": true, "chat.tool.tracker_lbl": true, "config.title": true,
 	"export.format_heading": true, "export.format_json": true, "export.format_md": true,
-	"internet.engine_crawl4ai": true, "mcpmodal.args_label": true,
+	"mcpmodal.args_label":      true,
 	"mcpmodal.transport_label": true, "mcpmodal.transport_stdio": true,
 	"mcpmodal.url_label": true, "memory.mode_auto": true, "memory.mode_label": true,
 	"models.bench.button": true, "models.bench.total": true, "models.mem.label": true,

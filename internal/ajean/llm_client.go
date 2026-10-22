@@ -267,7 +267,7 @@ type Caps struct {
 	// Agent = mode agent actif : un seul interrupteur qui débloque TOUS les
 	// outils de l'IA (shell + skills). Un skill est un outil comme un autre.
 	Agent bool
-	// Internet = accès web actif (serveur Crawl4AI configuré + joignable) : ajoute
+	// Internet = accès web actif (moteur intégré) : ajoute
 	// les outils web_search/web_open/web_read/web_grep. Requiert aussi Agent.
 	Internet bool
 	// Mem = mode d'accès à la mémoire persistante (off / ondemand / always),
@@ -292,8 +292,7 @@ type Caps struct {
 // globalCaps reads the machine-wide config — the default when a request doesn't
 // specify its own capabilities.
 func globalCaps() Caps {
-	// Internet inclut la joignabilité du serveur Crawl4AI : « actif ET fonctionnel ».
-	// Ainsi le prompt système (chat_tools.go) et les outils fournis (EnabledTools) sont
+	// Le prompt système (chat_tools.go) et les outils fournis (EnabledTools) sont
 	// gouvernés par la MÊME condition — sinon le prompt promet web_search alors que
 	// l'outil n'existe pas, et le modèle le tape en bash (command not found).
 	// Mémoire et accès internet sont des sous-réglages du mode agent (cf. UI web) :
@@ -304,7 +303,7 @@ func globalCaps() Caps {
 	if !agent {
 		return Caps{Agent: false, Internet: false, Mem: MemOff}
 	}
-	return Caps{Agent: true, Internet: internetEnabled() && crawlReachable(), Mem: memMode(), ComputerUse: computerUseEnabled()}
+	return Caps{Agent: true, Internet: internetEnabled(), Mem: memMode(), ComputerUse: computerUseEnabled()}
 }
 
 // InjectSkills prepends context system messages to msgs: the decisive-agent
@@ -997,6 +996,7 @@ func runChat(ctx context.Context, messages []Message, temperature float64, caps 
 	// Appels d'outil déjà exécutés (clé = nom + arguments bruts) : sert à ne pas
 	// rejouer deux fois exactement la même écriture dans un même échange.
 	doneCalls := map[string]string{}
+	jeanFailed := map[string]jeanFailure{} // mode Jean : dernière commande ratée, pour ses correctifs (jean_fixes.go)
 	// Nombre de fois où le modèle a REDEMANDÉ un appel déjà exécuté. Sert à durcir
 	// la réponse progressivement (voir repeatedCallResult) : rendre le contenu une
 	// fois, puis refuser en le renvoyant vers ce qu'il a déjà.
@@ -1567,6 +1567,14 @@ func runChat(ctx context.Context, messages []Message, temperature float64, caps 
 				// boucle jusqu'au reset. On neutralise tout ce qui n'est pas du JSON valide
 				// en objet vide (l'appel a de toute façon déjà été exécuté). json.Valid("")
 				// étant faux, ça couvre aussi le cas vide d'origine.
+				// Avant de refuser : les erreurs habituelles d'un petit modèle (virgule
+				// finale, guillemets simples, bloc Markdown…) sont réparées, et c'est
+				// le JSON réparé qui part dans l'historique (tool_args_repair.go).
+				if !json.Valid([]byte(tc.Function.Arguments)) {
+					if fixed, ok := repairToolArgs(tc.Function.Arguments); ok {
+						tc.Function.Arguments = fixed
+					}
+				}
 				if !json.Valid([]byte(tc.Function.Arguments)) {
 					if strings.TrimSpace(tc.Function.Arguments) != "" {
 						badArgs[tc.ID] = true
@@ -1869,6 +1877,10 @@ func runChat(ctx context.Context, messages []Message, temperature float64, caps 
 					}
 				}
 				result = capToolResult(result)
+				if caps.Jean && tc.Function.Name == "bash" && !isJeanReflecting(ctx) {
+					cmd, _ := args["command"].(string)
+					result = jeanNoteBashResult(jeanFailed, cmd, result)
+				}
 				shot := ""
 				if !strings.HasPrefix(result, "[erreur]") {
 					doneCalls[callKey] = result

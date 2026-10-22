@@ -23,10 +23,10 @@ func webSearchTool() Tool {
 	}}
 }
 
-// webOpenTool : le schéma DÉPEND du moteur web actif.
+// webOpenTool : le schéma ne déclare que ce que le moteur sait faire.
 //
 // Le moteur intégré n'a pas de DOM vivant : actions / wait_for / dismiss_popups
-// seraient acceptés puis ignorés en silence. Les déclarer quand même reviendrait
+// seraient acceptés puis ignorés en silence. Les déclarer reviendrait
 // à mentir au modèle — il croirait pouvoir déplier une section ou fermer un
 // bandeau, constaterait que rien ne change, et réessaierait en boucle (le failure
 // mode classique, cf. le garde-fou anti-boucle de chat_agent.go). On ne déclare
@@ -37,19 +37,11 @@ func webOpenTool() Tool {
 	// La limite JavaScript vit dans la description du paramètre url (pas dans la
 	// phrase de l'outil) : c'est un avertissement de comportement, pas un exemple,
 	// et il évite que le modèle réessaie en boucle une page rendue côté client.
-	urlDesc := "Full URL"
-	if webEngine() == engineGo {
-		urlDesc += " (this engine reads served HTML only, no JavaScript: a client-rendered page comes back empty, so switch source instead of retrying)"
-	}
+	urlDesc := "Full URL (this engine reads served HTML only, no JavaScript: a client-rendered page comes back empty, so switch source instead of retrying)"
 	props := map[string]any{
 		"url":     map[string]any{"type": "string", "description": urlDesc},
 		"refresh": map[string]any{"type": "boolean", "description": "Bypass the 10-minute cache (default false)"},
-	}
-	if webEngine() != engineGo {
-		props["actions"] = map[string]any{"type": "array", "items": map[string]any{"type": "string"},
-			"description": "JS snippets to run on the page before extraction (expand sections, click 'show more', etc.)"}
-		props["dismiss_popups"] = map[string]any{"type": "boolean", "description": "Auto-close cookie/overlay banners (default true)"}
-		props["wait_for"] = map[string]any{"type": "string", "description": "CSS selector or JS expression to wait for after the actions"}
+		"focus":   map[string]any{"type": "string", "description": "What you look for: returns the matching passages instead of the outline"},
 	}
 	return Tool{Type: "function", Function: ToolFunction{
 		Name:        "web_open",
@@ -127,15 +119,17 @@ func toolWebSearch(args map[string]any) string {
 	if limit > 20 {
 		limit = 20
 	}
-	results, err := duckduckgoSearch(query, limit)
+	// DuckDuckGo d'abord, puis d'autres moteurs sans clé s'il bloque ou répond
+	// trop peu (web_search_engines.go).
+	results, from, err := multiSearch(query, limit)
 	if err != nil {
 		return "❌ Recherche échouée : " + err.Error()
 	}
 	if len(results) == 0 {
-		return fmt.Sprintf("Aucun résultat pour « %s »", query)
+		return fmt.Sprintf("Aucun résultat pour « %s » : cherche avec d'autres mots, ou moins de mots, ou réponds avec ce que tu sais", query)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Recherche : %s\n%d résultat(s) DuckDuckGo\n\n", query, len(results))
+	fmt.Fprintf(&b, "# Recherche : %s\n%d résultat(s) (%s)\n\n", query, len(results), strings.Join(from, ", "))
 	for i, r := range results {
 		fmt.Fprintf(&b, "%d. %s\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Snippet)
 	}
@@ -144,34 +138,30 @@ func toolWebSearch(args map[string]any) string {
 
 func toolWebOpen(args map[string]any) string {
 	u, _ := args["url"].(string)
-	opts := fetchOptions{dismissPopups: true}
+	opts := fetchOptions{}
 	if v, ok := args["refresh"].(bool); ok {
 		opts.force = v
-	}
-	if v, ok := args["dismiss_popups"].(bool); ok {
-		opts.dismissPopups = v
-	}
-	if v, ok := args["wait_for"].(string); ok {
-		opts.waitFor = v
-	}
-	if arr, ok := args["actions"].([]any); ok {
-		for _, a := range arr {
-			if s, ok := a.(string); ok {
-				opts.actions = append(opts.actions, s)
-			}
-		}
 	}
 	entry, err := getPage(u, opts)
 	if err != nil {
 		return "❌ " + err.Error()
+	}
+	// Avec un focus : les passages qui répondent, au lieu du plan (web_focus.go).
+	focus, _ := args["focus"].(string)
+	nothing := ""
+	if focus = strings.TrimSpace(focus); focus != "" {
+		if out := focusedPage(entry, focus); out != "" {
+			return capWebOutput(out)
+		}
+		nothing = fmt.Sprintf("Aucun passage ne contient les mots de « %s » : voici le plan.\n", focus)
 	}
 	total := len(entry.lines)
 	chars := total
 	for _, l := range entry.lines {
 		chars += len(l)
 	}
-	return fmt.Sprintf("# Ouvert : %s\nTotal : %d lignes, %s (%d caractères)\nEn cache 10 min. Utilise web_read ou web_grep pour lire.\n\n## Plan (n° de ligne des titres)\n```\n%s\n```",
-		entry.url, total, formatBytes(chars), chars, extractOutline(entry.lines))
+	return fmt.Sprintf("# Ouvert : %s\n%sTotal : %d lignes, %s (%d caractères)\nEn cache 10 min. Utilise web_read ou web_grep pour lire.\n\n## Plan (n° de ligne des titres)\n```\n%s\n```",
+		entry.url, nothing, total, formatBytes(chars), chars, extractOutline(entry.lines))
 }
 
 func toolWebRead(args map[string]any) string {
@@ -283,7 +273,7 @@ func toolWebGrep(args map[string]any) string {
 		entry.url, len(matchIdx), pattern, capped, strings.Join(blocks, "\n\n---\n\n"))
 }
 
-// ─── CLI : ajean internet [on|off|status|engine|url|key] ────────────────────
+// ─── CLI : ajean internet [on|off|status] ───────────────────────────────────
 
 func cmdInternet(args []string) error {
 	sub := ""
@@ -292,10 +282,6 @@ func cmdInternet(args []string) error {
 	}
 	switch sub {
 	case "on":
-		// Le moteur intégré ne demande aucun réglage ; Crawl4AI exige un serveur.
-		if webEngine() == engineCrawl && crawl4aiURL() == "" {
-			return fmt.Errorf("configure d'abord l'URL : ajean internet url <url>  (ou bascule sur le moteur intégré : ajean internet engine go)")
-		}
 		if err := setInternetEnabled(true); err != nil {
 			return err
 		}
@@ -305,72 +291,16 @@ func cmdInternet(args []string) error {
 			return err
 		}
 		fmt.Println(green("[ok]") + " accès internet désactivé")
-	case "url":
-		if len(args) < 2 {
-			return fmt.Errorf("usage: ajean internet url <url>  (ex: http://localhost:11235)")
-		}
-		u := strings.TrimRight(strings.TrimSpace(args[1]), "/")
-		if err := SetConfigKey("CRAWL4AI_URL", u); err != nil {
-			return err
-		}
-		reachMu.Lock()
-		reachURL = "" // invalide le cache de reachability
-		reachMu.Unlock()
-		fmt.Printf("%s serveur Crawl4AI : %s\n", green("[ok]"), bold(u))
-	case "key":
-		if len(args) < 2 {
-			return fmt.Errorf("usage: ajean internet key <clé>  (vide pour l'enlever : ajean internet key \"\")")
-		}
-		k := strings.TrimSpace(args[1])
-		if err := writeCrawlKey(k); err != nil {
-			return err
-		}
-		reachMu.Lock()
-		reachURL = ""
-		reachMu.Unlock()
-		if k == "" {
-			fmt.Println(green("[ok]") + " clé Crawl4AI retirée")
-		} else {
-			fmt.Println(green("[ok]") + " clé Crawl4AI enregistrée")
-		}
-	case "engine":
-		if len(args) < 2 {
-			return fmt.Errorf("usage: ajean internet engine <go|crawl4ai>")
-		}
-		e := strings.ToLower(strings.TrimSpace(args[1]))
-		if err := setWebEngine(e); err != nil {
-			return err
-		}
-		if e == engineGo {
-			fmt.Println(green("[ok]") + " moteur intégré — aucune installation requise (pas de rendu JavaScript)")
-		} else {
-			fmt.Println(green("[ok]") + " moteur Crawl4AI — configure le serveur : ajean internet url <url>")
-		}
 	case "", "status", "list":
 		state := dim("off")
 		if internetEnabled() {
 			state = green("on")
 		}
 		fmt.Printf("%s  état: %s\n", cyan("Accès internet"), state)
-		if webEngine() == engineGo {
-			fmt.Printf("  moteur  : %s (aucune installation, pas de rendu JavaScript)\n", bold("intégré"))
-			fmt.Printf("  outils  : web_search, web_open, web_read, web_grep\n")
-			return nil
-		}
-		fmt.Printf("  moteur  : %s\n", bold("crawl4ai"))
-		u := crawl4aiURL()
-		if u == "" {
-			fmt.Printf("  serveur : %s — configure : ajean internet url <url>\n", dim("(non configuré)"))
-			return nil
-		}
-		reach := red("injoignable")
-		if crawlReachable() {
-			reach = green("joignable")
-		}
-		fmt.Printf("  serveur : %s (%s)\n", bold(u), reach)
+		fmt.Printf("  moteur  : %s (aucune installation, pas de rendu JavaScript)\n", bold("intégré"))
 		fmt.Printf("  outils  : web_search, web_open, web_read, web_grep\n")
 	default:
-		return fmt.Errorf("usage: ajean internet [on|off|status|engine <go|crawl4ai>|url <url>|key <clé>]")
+		return fmt.Errorf("usage: ajean internet [on|off|status]")
 	}
 	return nil
 }

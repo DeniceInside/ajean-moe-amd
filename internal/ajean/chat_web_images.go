@@ -6,8 +6,7 @@ package ajean
 // pages au lieu de photos).
 //
 // DuckDuckGo sert les images par i.js, qui exige un jeton « vqd » lu dans la
-// page de recherche. Même client HTTP que le moteur intégré, quel que soit le
-// moteur web actif : Crawl4AI n'apporterait rien à un appel JSON.
+// page de recherche. Même client HTTP que le moteur web intégré.
 
 import (
 	"context"

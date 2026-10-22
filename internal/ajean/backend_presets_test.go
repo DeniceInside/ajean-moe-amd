@@ -47,7 +47,7 @@ func TestSwitchToPresetGardeLesReglagesMachine(t *testing.T) {
 		}
 	}
 	// Configuration courante : un preset + les réglages machine.
-	setConfig(t, "MODEL=ancien.gguf\nCTX=4096\nCUDA_VISIBLE_DEVICES=1\nWEB_ENGINE=go\nMEM_MODE=always\n")
+	setConfig(t, "MODEL=ancien.gguf\nCTX=4096\nCUDA_VISIBLE_DEVICES=1\nMEM_MODE=always\n")
 	target := filepath.Join(home, "cible.env")
 	write(target, "MODEL=nouveau.gguf\nCTX=8192\n")
 
@@ -60,7 +60,7 @@ func TestSwitchToPresetGardeLesReglagesMachine(t *testing.T) {
 		t.Fatalf("le preset n'a pas été appliqué : %v", cfg)
 	}
 	for k, want := range map[string]string{
-		"CUDA_VISIBLE_DEVICES": "1", "WEB_ENGINE": "go", "MEM_MODE": "always",
+		"CUDA_VISIBLE_DEVICES": "1", "MEM_MODE": "always",
 	} {
 		if cfg[k] != want {
 			t.Errorf("%s = %q après bascule, attendu %q (réglage machine effacé)", k, cfg[k], want)
@@ -79,7 +79,7 @@ func TestSwitchToPresetLaisseLePresetImposerSesGPU(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	setConfig(t, "MODEL=ancien.gguf\nCUDA_VISIBLE_DEVICES=1\nWEB_ENGINE=go\n")
+	setConfig(t, "MODEL=ancien.gguf\nCUDA_VISIBLE_DEVICES=1\n")
 	deuxGPU := filepath.Join(home, "deux-gpu.env")
 	write(deuxGPU, "MODEL=fable.gguf\nCUDA_VISIBLE_DEVICES=1,0\n")
 	if err := applyPresetFile(deuxGPU); err != nil {
@@ -97,8 +97,5 @@ func TestSwitchToPresetLaisseLePresetImposerSesGPU(t *testing.T) {
 	cfg := ReadConfig()
 	if cfg["CUDA_VISIBLE_DEVICES"] != "1,0" {
 		t.Errorf("CUDA_VISIBLE_DEVICES = %q, attendu 1,0 conservé", cfg["CUDA_VISIBLE_DEVICES"])
-	}
-	if cfg["WEB_ENGINE"] != "go" {
-		t.Errorf("WEB_ENGINE = %q, attendu go (réglage machine, jamais dicté par un preset)", cfg["WEB_ENGINE"])
 	}
 }

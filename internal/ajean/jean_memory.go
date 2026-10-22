@@ -530,17 +530,28 @@ func JeanSearch(query string, limit int) string {
 	now := time.Now()
 	type hit struct{ e jeanEntry }
 	var hits []hit
+	// Un code d'erreur, un nom de fichier, une adresse : seule une
+	// correspondance exacte les retrouve, le sens les confond (jean_exact.go).
+	exact := jeanExactTokens(query)
+	var order []int
 	if sem, cos := jeanSemanticRank(query, all); sem != nil {
+		var near []int
 		for _, i := range sem {
 			if cos[i] < jeanSemanticFloor {
 				break
 			}
-			hits = append(hits, hit{all[i]})
+			near = append(near, i)
 		}
+		in := map[int]bool{}
+		for _, i := range near {
+			in[i] = true
+		}
+		order = jeanFuse(all, [][]int{near}, exact, func(i, n int) bool { return in[i] || n > 0 })
 	} else {
-		for _, i := range jeanKeywordRank(terms, all, now) {
-			hits = append(hits, hit{all[i]})
-		}
+		order = jeanFuse(all, [][]int{jeanKeywordRank(terms, all, now)}, exact, func(int, int) bool { return true })
+	}
+	for _, i := range order {
+		hits = append(hits, hit{all[i]})
 	}
 	fiches := jeanFicheHits(terms)
 	if len(hits) == 0 && len(fiches) == 0 {

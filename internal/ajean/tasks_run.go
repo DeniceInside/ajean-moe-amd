@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -150,12 +151,33 @@ func runTask(t Task) {
 
 	start := time.Now()
 
+	// Une génération en cours : on ne touche à rien, la tâche repasse au prochain
+	// tick (NextRun reste dans le passé). Avant, la bascule ci-dessous redémarrait
+	// le moteur en pleine réponse pour une tâche qui renonçait ensuite (#162).
+	if conv.isGenerating() {
+		return
+	}
+
 	// Preset épinglé : on bascule le moteur dessus AVANT d'exécuter (rechargement du
 	// modèle). Vide = on garde le preset actif. Un échec de bascule est un vrai échec
 	// de la tâche (on ne veut pas la faire tourner sur le mauvais modèle).
+	prev := activePresetID()
 	if err := ensureTaskPreset(t.Preset); err != nil {
 		recordTaskEnd(t.ID, start, "", fmt.Errorf("changement de preset : %w", err))
 		return
+	}
+	// La tâche rend le preset d'avant en sortant (succès ou non), comme le sommeil
+	// de Jean, sauf si quelqu'un a changé entre-temps ou qu'une génération a démarré
+	// sur son modèle pendant le chargement (la couper serait la même faute).
+	if t.Preset != "" && prev != "" && prev != t.Preset {
+		defer func() {
+			if activePresetID() != t.Preset || conv.isGenerating() {
+				return
+			}
+			if err := ensureTaskPreset(prev); err != nil {
+				fmt.Fprintf(os.Stderr, "[tâches] retour au preset %s après « %s » : %v\n", prev, t.Name, err)
+			}
+		}()
 	}
 
 	// Projet de la tâche : sa mémoire (memoryDir) le temps de l'exécution. Le gate de
@@ -190,8 +212,8 @@ func runTask(t Task) {
 
 // taskCaps dérive les capacités d'une tâche : on part du mode agent de la machine
 // (qui débloque les outils), puis on applique les réglages propres à la tâche pour
-// la mémoire et le web. Le web reste borné à ce que la machine offre réellement
-// (serveur Crawl4AI configuré et joignable) : une tâche ne peut pas l'inventer.
+// la mémoire et le web. Le web reste borné à l'interrupteur de la machine : une
+// tâche ne peut pas l'inventer.
 func taskCaps(t Task) Caps {
 	c := Caps{Agent: agentEnabled()}
 	if !c.Agent {
@@ -200,7 +222,7 @@ func taskCaps(t Task) Caps {
 	if t.NoWeb {
 		c.Internet = false
 	} else {
-		c.Internet = internetEnabled() && crawlReachable()
+		c.Internet = internetEnabled()
 	}
 	if t.Jean {
 		// Mémoire de Jean, pas celle d'un projet.

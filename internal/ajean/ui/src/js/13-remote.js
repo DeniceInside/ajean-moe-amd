@@ -21,8 +21,7 @@ function renderRemote(d){
   if(perks) perks.style.display=''; // rappel discret en footer, une fois connecté
   document.getElementById('remote-url').value = d.machineURL || '';
   const st = document.getElementById('remote-status');
-  if(d.active){ st.textContent='● '+t('remote.online_status'); st.style.color='var(--accent)'; }
-  else { st.textContent='○ '+t('remote.tunnel_stopped'); st.style.color='var(--warn)'; }
+  st.textContent = d.active ? t('remote.online_status') : t('remote.tunnel_stopped'); st.classList.toggle('on', !!d.active);
   const sb = document.getElementById('remote-start');
   if(sb){ sb.style.display = d.active ? 'none' : ''; }
   setBadge(badge, d.active ? true : 'warn', d.active ? t('remote.connected') : t('remote.stopped'));
@@ -43,7 +42,7 @@ async function loadRemote(){
     const on=document.getElementById('remote-on'); if(on) on.style.display='';
     const url=document.getElementById('remote-url'); if(url) url.value=location.origin;
     const st=document.getElementById('remote-status');
-    if(st){ st.textContent='● '+t('remote.online_status'); st.style.color='var(--accent)'; }
+    if(st){ st.textContent=t('remote.online_status'); st.classList.add('on'); }
     const sb=document.getElementById('remote-start'); if(sb) sb.style.display='none';
     const fc=document.getElementById('remote-firstconn'); if(fc) fc.style.display='none';
     const bk=document.getElementById('backup-block'); if(bk) bk.style.display='none';
@@ -103,15 +102,20 @@ async function remoteDisconnect(){
   catch(e){ toast(t('remote.error_prefix')+e); }
 }
 
-async function remotePairCode(){
-  const box = document.getElementById('remote-pair');
-  box.style.display=''; box.textContent=t('remote.generating_code');
+// Connecter un appareil : la fenêtre montre l'adresse, l'empreinte et un code
+// frais (usage unique, 10 min) dans l'ordre où on s'en sert sur l'autre appareil.
+async function openPairModal(){
+  const err = document.getElementById('pair-err');
+  const code = document.getElementById('pair-code'), fp = document.getElementById('pair-fp');
+  document.getElementById('pair-url').textContent = document.getElementById('remote-url').value || '';
+  err.hidden = true; code.textContent = '…'; fp.textContent = '…';
+  showModal('pair-modal');
   try{
     const r = await jpost('/api/link/paircode', {});
-    if(r && r.code){
-      box.innerHTML = t('remote.fingerprint_label')+' <b>'+(r.fingerprint||'—')+'</b><br>'+t('remote.pairing_code_label')+' : <b>'+r.code+'</b>';
-    } else {
-      box.textContent = (r && r.error) || t('remote.code_unavailable');
-    }
-  }catch(e){ box.textContent=t('remote.error_prefix')+e; }
+    if(r && r.code){ code.textContent = r.code; fp.textContent = r.fingerprint || '-'; return; }
+    err.textContent = (r && r.error) || t('remote.code_unavailable');
+  }catch(e){ err.textContent = t('remote.error_prefix') + e; }
+  err.hidden = false; code.textContent = '-'; fp.textContent = '-';
 }
+function closePairModal(){ hideModal('pair-modal'); }
+

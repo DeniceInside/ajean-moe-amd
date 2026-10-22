@@ -75,6 +75,7 @@ function renderTasks(r){
     dot.title = running ? t('tasks.dot_running')
       : (!tk.enabled ? t('tasks.dot_disabled')
       : (tk.last_run ? (tk.last_ok ? t('tasks.dot_last_ok') : t('tasks.dot_last_err')) : t('tasks.dot_never')));
+    if(tk.last_run && !tk.last_ok && tk.last_error) dot.title += ' : '+tk.last_error;
 
     const info = document.createElement('div');
     info.className = 'mcp-info';
@@ -100,11 +101,7 @@ function renderTasks(r){
         nx.title = t('tasks.next_run_title_prefix')+fmtWhen(tk.next_run);
         meta.appendChild(nx);
       }
-      if(tk.last_run && !tk.last_ok && tk.last_error){
-        const er = document.createElement('span'); er.className = 'mcp-err';
-        er.textContent = t('tasks.failed'); er.title = tk.last_error;
-        meta.appendChild(er);
-      }
+      // L'échec se lit à la pastille rouge ; le message est dans son infobulle.
     }
     info.appendChild(nm); info.appendChild(meta);
 

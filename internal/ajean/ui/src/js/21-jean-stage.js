@@ -15,6 +15,7 @@
 (()=>{
   let stage, scene, bubble, bubbleBody, caption, capText, capStop, inputBox, ta, sendBtn, histBtn;
   let screen, screenView, screenUrl, screenSrc='';
+  let jeanWasOn=false;
   let inputOpen=false, syncTimer=0, lastHTML='', userScrolled=false;
 
   const $=(tag, cls, parent)=>{ const n=document.createElement(tag); if(cls) n.className=cls; if(parent) parent.appendChild(n); return n; };
@@ -208,8 +209,12 @@
     // ligne, qui doit déjà être à l'écran pour que son trajet tombe juste.
     if(on){ closeInput(); const c=document.getElementById('chat'); if(c){ stickyBottom=true; c.scrollTop=c.scrollHeight; } }
     document.body.classList.toggle('jean-history', on);
+    // Choix retenu sur cet appareil : qui préfère le fil classique le retrouve
+    // à chaque ouverture du mode Jean, rechargement compris.
+    try{ localStorage.setItem('ajean-jean-view', on ? 'chat' : 'stage'); }catch(_){}
     applyTexts();
   }
+  const prefersChat=()=>{ try{ return localStorage.getItem('ajean-jean-view')==='chat'; }catch(_){ return false; } };
 
   // Clavier virtuel (iPhone) : il réduit la zone visible sans changer la hauteur de
   // la page. La scène se cale alors exactement sur la zone visible au-dessus du
@@ -236,16 +241,21 @@
     ta.addEventListener('blur', ()=>setTimeout(fitViewport, 50));
     const chat=document.getElementById('chat');
     if(chat) new MutationObserver(schedule).observe(chat, {childList:true, subtree:true, characterData:true});
-    // Mode Jean quitté : on repart de la scène la prochaine fois.
-    // ⚠️ Ne toucher à la classe que si elle est là : retirer une classe absente
-    // modifie quand même l'attribut, ce qui relançait cet observateur à l'infini.
+    // Mode Jean quitté : la classe part ; à l'entrée, elle revient si l'utilisateur
+    // a choisi le fil classique (prefersChat).
+    // ⚠️ Ne toucher à la classe que si elle doit changer : modifier l'attribut
+    // relance cet observateur, à l'infini si on le faisait à chaque passage.
     new MutationObserver(()=>{
       const b=document.body.classList;
       if(!b.contains('jean-mode')){ if(b.contains('jean-history')) b.remove('jean-history'); if(inputOpen) closeInput(); }
+      else if(!b.contains('jean-history') && prefersChat() && !jeanWasOn){ jeanWasOn=true; b.add('jean-history'); return; }
+      jeanWasOn=b.contains('jean-mode');
       if(inStage() && document.activeElement && document.activeElement.id==='input') document.activeElement.blur();
       applyTexts(); schedule();
     })
       .observe(document.body, {attributes:true, attributeFilter:['class']});
+    // Page chargée directement en mode Jean : même règle.
+    if(document.body.classList.contains('jean-mode')){ jeanWasOn=true; if(prefersChat()) document.body.classList.add('jean-history'); }
     // Taper n'importe où ouvre la bulle de saisie (la première lettre y entre).
     document.addEventListener('keydown', e=>{
       if(!inStage() || inputOpen || e.ctrlKey || e.metaKey || e.altKey || e.key.length!==1) return;
