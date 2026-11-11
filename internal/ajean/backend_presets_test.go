@@ -99,5 +99,3 @@ func TestSwitchToPresetLaisseLePresetImposerSesGPU(t *testing.T) {
 		t.Errorf("CUDA_VISIBLE_DEVICES = %q, attendu 1,0 conservé", cfg["CUDA_VISIBLE_DEVICES"])
 	}
 }
-
-
