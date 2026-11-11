@@ -136,6 +136,17 @@ func sampleVramGPUs() []map[string]any {
 			gpus = amd
 		}
 	}
+	// Et toujours rien ? Sur une machine au pilote amdgpu propre, amd-smi ET
+	// rocm-smi peuvent être absents (vérifié sur CachyOS : RX 9070 XT présente,
+	// /dev/kfd chargé, aucun des deux outils). Dernière lecture, sans aucun
+	// outil externe : la topologie KFD du kernel (voir backend_gpu_kfd.go).
+	// Elle nourrit aussi le garde-fou des services (services_guard.go), sinon
+	// un service déclarant "vram_gb" est refusé (« carte 0 absente »).
+	if len(gpus) == 0 {
+		if amd := kfdVramGPUs("/sys"); len(amd) > 0 {
+			gpus = amd
+		}
+	}
 	return gpus
 }
 
