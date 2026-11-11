@@ -162,12 +162,12 @@ func kfdVramGPUs(sysfs string) []map[string]any {
 			}
 		}
 		m := map[string]any{
-			"name": name,
-			"used": int(usedGB * 1024),
+			"name":  name,
+			"used":  int(usedGB * 1024),
 			"total": int(totalGB * 1024),
-			"util": 0, // KFD ne donne pas la charge
-			"temp": 0, // KFD ne donne pas la température
-			"arch": arch,
+			"util":  0, // KFD ne donne pas la charge
+			"temp":  0, // KFD ne donne pas la température
+			"arch":  arch,
 		}
 		if uma {
 			m["dedicated"] = int(dedicatedGB * 1024) // la VRAM « dédiée » (carve-out)
