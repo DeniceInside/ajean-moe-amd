@@ -24,7 +24,20 @@ import (
 // l'OS/arch courant, remplace le binaire en place, puis affiche quoi redémarrer.
 // AUCUN redémarrage de service automatique (choix volontaire, plus sûr).
 
-const updateRepo = "nathaninline/ajean"
+// updateRepo : LA SOURCE DE MISE À JOUR DE CE BUILD.
+//
+// Ce binaire est le fork AMD/MoE, pas l'amont. Il pointe donc sur les releases
+// du fork : une machine installée depuis le fork doit rester sur le fork.
+// Pointé sur l'amont, `ajean update` comparait à la release amont et remplaçait
+// silencieusement le binaire du fork (support AMD, MoE, KFD, WOL) par le binaire
+// amont, qui ne les a pas (défaut n°3 relevé sur la release v0.18.2).
+//
+// Le fork publie les MÊMES noms d'assets que l'amont (release.yml : ajean-linux,
+// ajean-macos, ajean-windows.exe…) — assetNameFor reste donc valable.
+//
+// ⚠️ Ne pas « aligner » sur l'amont en reprenant un commit amont : c'est la ligne
+// de coupe du fork (v0.18.17 = dernière version synchronisée).
+const updateRepo = "DeniceInside/ajean-moe-amd"
 
 type ghRelease struct {
 	TagName string `json:"tag_name"`

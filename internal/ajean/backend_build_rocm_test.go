@@ -212,6 +212,12 @@ func TestRocmBuildEnvExposeCeQueCMakeCherche(t *testing.T) {
 // prependPathVar doit cumuler, pas écraser : un build peut poser CUDA et ROCm
 // dans la même variable (et le MSVC de Windows y pose déjà la sienne).
 func TestPrependPathVarCumule(t *testing.T) {
+	// Départs d'une liste VIDE : newBuildEnv repart de l'environnement du
+	// processus, et une machine ROCm y a déjà LD_LIBRARY_PATH (posée par l'unité
+	// systemd, donc par `go test` lancé depuis le service). Sans ce départ
+	// neutre, le test mesurerait l'environnement de la machine, pas le cumul.
+	t.Setenv("LD_LIBRARY_PATH", "")
+	t.Setenv("DYLD_LIBRARY_PATH", "")
 	be := newBuildEnv()
 	be.prependPathVar("LD_LIBRARY_PATH", "/a")
 	be.prependPathVar("LD_LIBRARY_PATH", "/b", "/c")

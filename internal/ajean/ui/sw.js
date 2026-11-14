@@ -14,7 +14,7 @@ self.addEventListener('install', function(){ self.skipWaiting(); });
 self.addEventListener('activate', function(e){ e.waitUntil(self.clients.claim()); });
 
 self.addEventListener('push', function(e){
-  var data = { title: 'AJEAN', body: 'Réponse prête' };
+  var data = { title: 'AJEAN-MOE-AMD', body: 'Réponse prête' };
   try { if (e.data) data = Object.assign(data, e.data.json()); } catch (_){}
   e.waitUntil(self.registration.showNotification(data.title, {
     body: data.body,

@@ -63,8 +63,8 @@ jobs:
               '<?xml version="1.0" encoding="UTF-8"?>' \
               '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
               '<plist version="1.0"><dict>' \
-              '<key>CFBundleName</key><string>AJEAN</string>' \
-              '<key>CFBundleDisplayName</key><string>AJEAN</string>' \
+              '<key>CFBundleName</key><string>AJEAN-MOE-AMD</string>' \
+              '<key>CFBundleDisplayName</key><string>AJEAN-MOE-AMD</string>' \
               '<key>CFBundleExecutable</key><string>ajean</string>' \
               '<key>CFBundleIdentifier</key><string>link.ajean.app</string>' \
               '<key>CFBundleIconFile</key><string>ajean</string>' \

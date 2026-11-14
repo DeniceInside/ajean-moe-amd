@@ -47,7 +47,15 @@ import (
 // Un moteur installé d'un autre paquet est remplacé au lancement (moeEnsureEngine),
 // une installation d'une version précédente est reprise (moeMigrate).
 const (
-	moeVersion     = "1.1"
+	moeVersion = "1.1"
+	// ⚠️ VOLONTAIREMENT l'amont, et NON le fork (contrairement à updateRepo).
+	// Ces assets sont le moteur MoE compilé par l'amont (paquet CUDA/HIP, tag
+	// moe-v<N>) : le fork ne publie PAS de tag moe-v*, il n'a donc rien à
+	// télécharger là (vérifié : refs/tags du fork = v0.18.3 seul). Pointer
+	// moeReleaseBase sur le fork rend l'installation du moteur impossible (404).
+	// Le fork n'a jamais recompilé le moteur : il installe celui de l'amont et
+	// l'adapte (backend HIP, chemins, architectures). Ce qui est propre au fork,
+	// c'est le binaire ajean — updateRepo — et sa configuration.
 	moeReleaseBase = "https://github.com/nathaninline/ajean/releases/download/moe-v" + moeVersion + "/"
 	moeSrcAsset    = "ajean-moe-src-" + moeVersion + ".tar.gz"
 	moeEngineAsset = "ajean-moe-engine-" + moeVersion + "-linux-x64-cuda12.zip"

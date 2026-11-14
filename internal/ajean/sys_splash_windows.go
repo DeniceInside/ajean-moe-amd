@@ -154,7 +154,7 @@ func createSplashWindow() uintptr {
 	cy, _, _ := pGetSystemMetrics.Call(smCY)
 	x := (int(cx) - splashW) / 2
 	y := (int(cy) - splashH) / 2
-	title, _ := syscall.UTF16PtrFromString("AJEAN")
+	title, _ := syscall.UTF16PtrFromString("AJEAN-MOE-AMD")
 
 	hwnd, _, _ := pCreateWindowExW.Call(
 		uintptr(exTopmost|exToolwindow),

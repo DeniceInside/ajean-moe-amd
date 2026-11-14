@@ -1,4 +1,10 @@
 # AJEAN
+> **This repository is the AMD/MoE fork of [AJEAN](https://github.com/nathaninline/ajean)**
+> (`DeniceInside/ajean-moe-amd`). It installs and updates **from this fork**: the links
+> below point here, and `ajean update` reads the fork's releases. The fork carries AMD
+> Radeon under Linux (HIP backend), the MoE engine, KFD GPU detection and Wake on LAN;
+> the cut with upstream is set at **v0.18.17**. The MoE engine itself is still downloaded
+> from upstream releases (tag `moe-v*`) — the only place it is published.
 
 **English** · [Français](README.fr.md)
 
@@ -31,7 +37,7 @@ AJEAN handles everything around the model. The model itself runs on [llama.cpp](
 
 ## Install
 
-Download the file for your system from the [latest release](https://github.com/nathaninline/ajean/releases/latest):
+Download the file for your system from the [latest release](https://github.com/DeniceInside/ajean-moe-amd/releases/latest):
 
 | System | File |
 |---|---|
@@ -57,7 +63,7 @@ For command-line use, take the bare binary `ajean-macos-arm` / `ajean-macos` ins
 ### Linux (server)
 
 ```bash
-curl -L -o ajean https://github.com/nathaninline/ajean/releases/latest/download/ajean-linux
+curl -L -o ajean https://github.com/DeniceInside/ajean-moe-amd/releases/latest/download/ajean-linux
 chmod +x ajean && sudo mv ajean /usr/local/bin/ajean
 
 sudo ajean install        # services, permissions, folders
@@ -350,7 +356,7 @@ The key travels in the clear over HTTP: for public exposure, put HTTPS in front 
 Go 1.25 or later. AJEAN is pure Go; the interface is embedded in the binary.
 
 ```bash
-git clone https://github.com/nathaninline/ajean.git
+git clone https://github.com/DeniceInside/ajean-moe-amd.git
 cd ajean
 CGO_ENABLED=0 go build -o ajean ./cmd/ajean   # Linux, Windows
 go build -o ajean ./cmd/ajean                 # macOS (the menu bar icon needs CGO)

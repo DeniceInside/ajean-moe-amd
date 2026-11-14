@@ -23,7 +23,7 @@ const sudoersTemplate = `# Permet à %[1]s de piloter l'unité %[2]s sans mot de
 // engineUnitTemplate — le moteur : exec llama-server, supervisé directement par
 // systemd. Champs : User, WorkingDirectory, ExecStart.
 const engineUnitTemplate = `[Unit]
-Description=AJEAN — moteur llama.cpp
+Description=AJEAN-MOE-AMD — moteur llama.cpp (fork AMD/MoE)
 After=network.target
 
 [Service]
@@ -52,7 +52,7 @@ WantedBy=multi-user.target
 // OpenAI, servis par un SEUL process (donc une seule conversation).
 // Champs : unité du moteur (dépendance), User, WorkingDirectory, ExecStart.
 const uiUnitTemplate = `[Unit]
-Description=AJEAN — interface web + accès distant
+Description=AJEAN-MOE-AMD — interface web + accès distant (fork AMD/MoE)
 After=network-online.target %s.service
 Wants=network-online.target
 

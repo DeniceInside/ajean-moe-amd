@@ -22,8 +22,8 @@ import (
 func runTray(url string) {
 	systray.Run(func() {
 		systray.SetIcon(trayIcon())
-		systray.SetTitle("AJEAN")
-		systray.SetTooltip("AJEAN — votre IA locale")
+		systray.SetTitle("AJEAN-MOE-AMD")
+		systray.SetTooltip("AJEAN-MOE-AMD — votre IA locale (fork AMD/MoE)")
 		mOpen := systray.AddMenuItem("Ouvrir AJEAN", "Ouvrir l'interface")
 		systray.AddSeparator()
 		mQuit := systray.AddMenuItem("Quitter", "Arrêter AJEAN et décharger le modèle")
