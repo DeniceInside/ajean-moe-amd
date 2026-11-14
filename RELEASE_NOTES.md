@@ -1,23 +1,33 @@
-Corrections importantes (plantage après un compactage, raisonnement sur API externe, mémoire GPU sur portables AMD), conversation à voix haute avec Jean et gestionnaire de fichiers du mode Jean.
+Première release du **fork AMD/MoE** de AJEAN. Base synchronisée avec l'amont : **v0.18.17**. Le fork publie ses propres releases, et un binaire installé depuis le fork **reste sur le fork**.
 
-## Corrections
+## Ce que porte ce fork
 
-- **« Erreur d'envoi » puis redémarrage du service dans une longue conversation.** Quand le contexte était compacté au milieu d'un tour, AJEAN relisait ensuite les messages de ce tour à une position qui n'existait plus, et le service plantait. Les messages du tour sont maintenant mis de côté avant le compactage. Merci pour le rapport détaillé (#181).
-- **Preset API externe : l'effort de réflexion était envoyé dans un champ propre à llama.cpp** (`chat_template_kwargs`). Les API qui valident strictement la requête (OpenAI, Mistral, Groq…) pouvaient la refuser, et les autres l'ignoraient. Vers une API externe, AJEAN envoie désormais le champ standard `reasoning_effort` ; rien ne change pour llama.cpp en local. Merci pour l'analyse (#178).
-- **Windows, portable avec processeur Ryzen et carte Radeon : mémoire GPU inversée.** La puce graphique intégrée (« AMD Radeon(TM) Graphics ») était prise pour une carte dédiée et recevait la mémoire et l'utilisation de la vraie carte, et inversement. Les puces Radeon intégrées sont maintenant reconnues comme telles. Merci pour les mesures (#182).
-- **Mode Jean : le mot d'activité des tours terminés continuait de s'animer** (« Retient ça… ») et cachait la durée, les tokens et la vitesse du tour. Il est vidé à la fin de chaque tour. Correctif repris de la proposition #173, merci.
+- **Cartes AMD Radeon sous Linux (backend HIP).** Le moteur llama.cpp est compilé en HIP pour la carte présente, y compris RDNA4 (gfx1200 / gfx1201 : RX 9060 XT, RX 907 XT, AI PRO R9700). Les chemins ROCm des configurations du moteur sont redressés sur l'installation réelle, et la liste des architectures AMD est décidée par la carte, pas par la seule VRAM.
+- **ROCm trouvé depuis un service systemd.** Ni le PATH d'une session ni celui d'un service systemd ne contiennent `/opt/rocm/bin` : CMake appelle `hipconfig` en nu trois fois pour découvrir ROCm, et `rocm-smi` / `amd-smi` (télémétrie GPU de l'interface) y vivent. `ajean install` pose désormais `ROCM_PATH`, `PATH` et `LD_LIBRARY_PATH` dans les unités `ajean-engine` et `ajean-ui` — sans quoi le build HIP échoue à « HIP compiler identification is unknown » et la carte n'apparaît nulle part.
+- **Détection GPU par topologie KFD.** Quand `amd-smi` et `rocm-smi` sont absents (le cas sur beaucoup de distributions AMD), les cartes sont lues dans `/sys/devices/virtual/kfd/kfd/topology/nodes/` : nom, architecture, VRAM totale et utilisée, y compris sur les APU à mémoire unifiée. C'est le repli qui affiche la RX 9060 XT et la RX 907 XT là où l'amont affichait une liste vide.
+- **Wake on LAN pour les presets « API externe ».** Le PC du réseau local qui sert une API peut être éteint : AJEAN envoie le paquet magique, apprend l'adresse MAC dès que la machine a répondu, et le réveil est piloté depuis les presets.
+- **Moteur MoE.** Le moteur multi-plateformes (Strata) est géré sur la voie AMD, en plus de CUDA.
+- **Moteur ExLlama (ExLlamaV3 / TabbyAPI) retiré** de ce fork.
 
-## Mode Jean
+## Identité : le fork s'annonce
 
-- **Parler à Jean à voix haute.** Un bouton micro sur la scène de Jean ouvre une conversation mains libres : une courte pause suffit pour envoyer, la réponse est lue dès sa première phrase écrite, et Jean annonce aussi ce qu'il fait quand il utilise un outil. Toucher l'écran l'interrompt. Le texte dicté entre dans la conversation habituelle (mémoire, outils, fil). Pour un message dicté, Jean répond en phrases courtes, comme à l'oral.
-- **Réglages : Paramètres > Voix de Jean.** Activation, adresse du serveur audio, choix et écoute de la voix, création d'une voix à partir d'une description, sensibilité du micro et durée de la pause avant envoi. Les voix sont enregistrées dans AJEAN (dossier `voices`).
-- La voix nécessite un **serveur audio.cpp** (transcription Qwen3-ASR et synthèse VoxCPM2) lancé à part : AJEAN ne l'installe pas encore. Sans lui, le bouton micro n'apparaît pas.
-- **Fichiers de Jean.** Une fenêtre (bouton dossier sur la scène) permet de parcourir, envoyer, télécharger et supprimer les fichiers de son dossier de travail, et de lui en confier un. Jean retrouve un fichier par ce qu'il contient (PDF, documents, texte), pas seulement par son nom.
+- **`ajean update` consulte les releases du fork**, plus celles de l'amont. Pointé sur l'amont, un binaire de fork se proposait « 0.20.1 » et remplaçait le binaire du fork (HIP/AMD, MoE, KFD, WOL) par le binaire amont, qui ne les a pas — sans que personne ne demande la carte AMD.
+- **La fenêtre s'appelle AJEAN-MOE-AMD** : titre de la fenêtre du lanceur, nom de l'app ajoutée à l'écran d'accueil, nom installé par le manifeste, titre de la notification « réponse prête », nom du service, nom et version dans les propriétés du `.exe` Windows, nom de l'app macOS. Deux binaires peuvent tourner sur la même machine, sur le même port 8090 : sans nom distinctif, impossible de savoir lequel répond. La marque AJEAN reste partout ailleurs.
 
-## Mise à jour
+## Installation depuis le fork
 
+```bash
+curl -L -o ajean https://github.com/DeniceInside/ajean-moe-amd/releases/latest/download/ajean-linux
+chmod +x ajean && sudo mv ajean /usr/local/bin/ajean
+sudo ajean install   # régénère les unités, avec l'environnement ROCm
+ajean llamacpp install
+ajean start
 ```
-ajean update
-```
 
-Testé par les tests automatiques, et sur un serveur Linux pour la voix et les fichiers. Les corrections #181, #178 et #182 n'ont pas été rejouées sur les machines des rapports (Windows, API externe stricte, portable Ryzen + Radeon).
+Le moteur MoE lui-même reste téléchargé depuis les releases de l'amont (tag `moe-v1.1`) : c'est le seul endroit où il est publié, ce fork ne compile pas le moteur, il l'installe et l'adapte.
+
+## À savoir
+
+- ROCm doit être installé sur la machine (`/opt/rocm`, avec `hipconfig` et le compilateur HIP).
+- Les corrections de la série amont 0.18.x (dont la 0.18.17) sont comprises dans cette base.
+- Cette release n'a pas été rejouée sur les machines des rapports amont cités plus bas.
