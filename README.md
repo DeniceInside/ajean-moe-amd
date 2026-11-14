@@ -3,7 +3,8 @@
 > (`DeniceInside/ajean-moe-amd`). It installs and updates **from this fork**: the links
 > below point here, and `ajean update` reads the fork's releases. The fork carries AMD
 > Radeon under Linux (HIP backend), the MoE engine, KFD GPU detection and Wake on LAN;
-> the cut with upstream is set at **v0.18.17**. The MoE engine itself is still downloaded
+> the cut with upstream is set at **v0.18.17**, and the fork's first release is **v0.19.0**.
+> The MoE engine itself is still downloaded
 > from upstream releases (tag `moe-v*`) — the only place it is published.
 
 **English** · [Français](README.fr.md)
