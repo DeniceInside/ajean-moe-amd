@@ -4,7 +4,7 @@
 > fork** : les liens ci-dessous pointent ici, et `ajean update` consulte les releases du
 > fork. Le fork porte la carte AMD Radeon sous Linux (backend HIP), le moteur MoE, la
 > détection GPU par KFD et Wake on LAN ; la coupe avec l'amont est posée à **v0.18.17**, et la
-> première release du fork est **v0.19.0**.
+> première release du fork est **v0.18.18**.
 > Le moteur MoE, lui, reste téléchargé depuis les releases de l'amont (tag `moe-v*`),
 > seul endroit où il est publié.
 

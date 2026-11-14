@@ -1,4 +1,8 @@
+# AJEAN-MOE-AMD v0.18.18
+
 Première release du **fork AMD/MoE** de AJEAN. Base synchronisée avec l'amont : **v0.18.17**. Le fork publie ses propres releases, et un binaire installé depuis le fork **reste sur le fork**.
+
+Le numéro suit la série de la base (0.18.x) : la 0.19 de l'amont a **supprimé** le moteur MoE, ExLlama et le GPU cloud, ce que ce fork garde. Un numéro 0.19 ferait croire que le fork a suivi cette suppression.
 
 ## Ce que porte ce fork
 
