@@ -49,8 +49,7 @@ async function loadLlamacpp(){
 let lcSeenEnd = false, lcEndShown = false;
 function lcChipLabel(action){
   return {install:t('llamacpp.chip_install'), update:t('llamacpp.chip_update'),
-          prebuilt:t('llamacpp.chip_prebuilt'), custom:t('llamacpp.chip_custom'), moe:t('moe.chip'),
-          exl3:t('exl3.chip_install'), 'exl3-update':t('exl3.chip_update'), 'exl3-model':t('exl3.chip_model')}[action] || t('llamacpp.chip_default');
+          prebuilt:t('llamacpp.chip_prebuilt'), custom:t('llamacpp.chip_custom'), moe:t('moe.chip')}[action] || t('llamacpp.chip_default');
 }
 function lcChipSync(j){
   const chip = document.getElementById('lc-chip');

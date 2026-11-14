@@ -2032,11 +2032,6 @@ func healthCheck() bool {
 	}
 	resp, err := healthClient.Get(fmt.Sprintf("http://localhost:%d/health", LLMPort()))
 	if err != nil {
-		// ExLlama (TabbyAPI) ne répond plus à /health pendant une longue lecture
-		// de prompt : ce n'est pas un chargement. Un succès récent fait foi.
-		if isExl3Config(cfg) && time.Since(time.Unix(0, healthLastOK.Load())) < 2*time.Minute {
-			return true
-		}
 		return false
 	}
 	defer resp.Body.Close()

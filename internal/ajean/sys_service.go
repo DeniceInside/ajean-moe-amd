@@ -40,11 +40,6 @@ func preflightEngine() error {
 		_, _, err := moePreflight(cfg)
 		return err
 	}
-	// ExLlama : un dossier de modèle EXL3 et TabbyAPI, ni BIN ni .gguf.
-	if isExl3Config(cfg) {
-		_, _, err := exl3Preflight(cfg)
-		return err
-	}
 	bin := strings.TrimSpace(cfg["BIN"])
 	if bin == "" {
 		return fmt.Errorf("BIN non défini — installe un moteur : %s (ou renseigne BIN avec %s)",

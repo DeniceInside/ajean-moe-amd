@@ -1899,17 +1899,6 @@ button:hover{border-color:var(--dim);color:var(--text)}
 #modal.run-cloud #m-engine-row,#modal.run-cloud #m-model-row,#modal.run-cloud #m-gpu-group{display:none!important}
 /* Preset API externe : ni moteur local ni réglages llama-server. */
 #modal.run-external #m-engine-row,#modal.run-external #m-model-row,#modal.run-external #m-gpu-group,#modal.run-external #m-settings-row{display:none!important}
-/* Moteur ExLlama (ENGINE=exl3) : ses blocs remplacent ceux de llama.cpp, et
-   disparaissent hors de ce moteur ou pour un preset distant. */
-#m-exl3-row,#m-exl3-set,#m-exl3-gpu{display:none}
-#modal.eng-exl3 #m-exl3-row,#modal.eng-exl3 #m-exl3-set{display:flex}
-#modal.eng-exl3 #m-exl3-gpu:not([hidden]){display:flex}
-#modal.eng-exl3 #m-model-row,#modal.eng-exl3 #m-settings-row,#modal.eng-exl3 #m-gpu-group,
-#modal.eng-exl3 #m-backend-custom,#modal.eng-exl3 #be-avail-note{display:none!important}
-#modal.run-cloud #m-exl3-row,#modal.run-cloud #m-exl3-set,#modal.run-cloud #m-exl3-gpu,
-#modal.run-external #m-exl3-row,#modal.run-external #m-exl3-set,#modal.run-external #m-exl3-gpu{display:none!important}
-#m-exl3-row .pe-row[hidden],#m-exl3-set .pe-row[hidden],#m-exl3-gpu .pe-row[hidden]{display:none}
-#s-exl3-gpus .pe-row-c{gap:10px}
 /* Section GPU Cloud selon l'état (voir #m-cloud-body[data-state]). */
 .cloud-spin{flex:none;width:16px;height:16px}
 #m-cloud-body:not([data-state=setup]) #m-cloud-setup,

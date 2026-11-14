@@ -516,23 +516,6 @@ async function loadCfg(){
     updateReasonBtn(c.REASONING_EFFORT || '', true);
     return;
   }
-  // Moteur ExLlama : réglages du preset (la config TabbyAPI en découle).
-  if(c.ENGINE==='exl3'){
-    const [s, cl] = await Promise.all([jget('/api/exl3').catch(()=>null), jget('/api/engine/cmdline').catch(()=>null)]);
-    ENGINE_CMDLINE=(cl&&cl.cmdline)||'';
-    const cp=ENGINE_CMDLINE ? '<button class="cfg-copy" onclick="copyText(ENGINE_CMDLINE, t(\'status.cmdline_copied\'))" title="'+escHtml(t('status.cmdline_copy')+' : '+ENGINE_CMDLINE)+'"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>' : '';
-    const ins=s&&s.installed;
-    rows.push(row(t('status.cfg_engine')+cp, 'ExLlama'+(ins&&ins.exllamav3 ? ' '+ins.exllamav3 : '')));
-    if(c.EXL3_MODEL) rows.push(row('MODEL', c.EXL3_MODEL.split(/[\\/]/).pop(), c.EXL3_MODEL));
-    if(c.CTX) rows.push(row('CTX', c.CTX));
-    rows.push(row('CACHE', (c.EXL3_CACHE_MODE||'FP16')+(c.EXL3_CACHE ? ' · '+c.EXL3_CACHE : '')));
-    if(c.EXL3_DRAFT) rows.push(row('SPEC', c.EXL3_DRAFT+(c.EXL3_DRAFT_TOKENS ? ' · '+c.EXL3_DRAFT_TOKENS : '')));
-    if(c.EXL3_TP==='1') rows.push(row('TP', c.EXL3_GPU_SPLIT || 'auto'));
-    else if(c.EXL3_GPU_SPLIT) rows.push(row('SPLIT', c.EXL3_GPU_SPLIT));
-    swapContent(document.getElementById('cfg'), rows.join(''));
-    updateReasonBtn(c.REASONING_EFFORT || '', false);
-    return;
-  }
   if(c.BIN){
     // Moteur : précompilé / compilé / personnalisé (avec le chemin). Le title garde
     // toujours le chemin complet, quel que soit le libellé.

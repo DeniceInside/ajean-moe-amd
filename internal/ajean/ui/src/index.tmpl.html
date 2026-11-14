@@ -256,11 +256,6 @@
       </div>
       <!-- Moteur MoE spécialisé Qwen3.8 Flash Next, installé en un clic (version
            figée par ajean). Affiché seulement là où il tourne (Linux + NVIDIA). -->
-      <div class="lc-mode" id="lc-mode-exl3" hidden onclick="openExl3()">
-        <div class="lc-mode-t" data-i18n="exl3.mode_title">ExLlama</div>
-        <div class="lc-mode-d" data-i18n="exl3.mode_desc">modèles EXL3 sur carte NVIDIA, très rapide en génération</div>
-        <div class="lc-mode-state" id="lc-exl3-state"></div>
-      </div>
       <div class="lc-mode" id="lc-mode-moe" hidden onclick="openMoe()">
         <div class="lc-mode-t" data-i18n="moe.mode_title">Qwen3.8 Flash Next</div>
         <div class="lc-mode-d" data-i18n="moe.mode_desc">le plus rapide pour ce modèle, installation en un clic</div>
@@ -648,44 +643,6 @@
         <button onclick="closeMoe()" data-i18n="moe.close">fermer</button>
         <button id="moe-save" hidden onclick="moeSaveSettings()" data-i18n="moe.save">Enregistrer</button>
         <button class="btn-save" id="moe-go" onclick="moeInstall()" data-i18n="moe.install">Installer</button>
-      </div>
-    </div>
-  </div>
-</div>
-<div id="exl3-modal" class="modal-ov" style="display:none" onclick="if(event.target===this)closeExl3()">
-  <div class="modal-card" style="max-width:520px">
-    <div class="modal-head">
-      <strong data-i18n="exl3.modal_title">ExLlama</strong>
-      <button class="modal-x" onclick="closeExl3()" aria-label="Fermer" data-i18n="moe.close_aria" data-i18n-attr="aria-label">×</button>
-    </div>
-    <div class="modal-body mform">
-      <div id="exl3-machine" class="muted" style="font-size:12px;line-height:1.5"></div>
-      <div class="fld">
-        <label class="fld-l" data-i18n="exl3.engine_label">Moteur</label>
-        <div class="slist moe-details" id="exl3-engine"></div>
-      </div>
-      <div class="fld">
-        <label class="fld-l" data-i18n="exl3.models_label">Modèles EXL3</label>
-        <div class="slist moe-details" id="exl3-models"></div>
-      </div>
-      <div class="fld">
-        <label class="fld-l" for="exl3-dl-url" data-i18n="exl3.download_label">Télécharger un modèle</label>
-        <div class="pe-inpbtn">
-          <input id="exl3-dl-url" class="ctl" spellcheck="false" placeholder="https://huggingface.co/turboderp/…/tree/4.0bpw" onkeydown="if(event.key==='Enter')exl3Download()">
-          <button onclick="exl3Download()" title="Télécharger" data-i18n="preset.download_button_title" data-i18n-attr="title">↓</button>
-        </div>
-        <div class="muted" style="font-size:11px;line-height:1.5" data-i18n="exl3.download_hint">Lien d'une branche d'un dépôt Hugging Face EXL3 (onglet « Files », menu des branches).</div>
-      </div>
-      <div id="exl3-note" class="muted" style="font-size:11px;line-height:1.5"></div>
-    </div>
-    <div class="modal-foot">
-      <div class="foot-l">
-        <button id="exl3-remove" hidden onclick="exl3Uninstall()" data-i18n="exl3.uninstall">Désinstaller</button>
-      </div>
-      <div class="foot-r">
-        <button onclick="closeExl3()" data-i18n="moe.close">Fermer</button>
-        <button id="exl3-update" hidden onclick="exl3Install(true)" data-i18n="exl3.update">Mettre à jour</button>
-        <button class="btn-save" id="exl3-go" onclick="exl3Install(false)" data-i18n="exl3.install">Installer</button>
       </div>
     </div>
   </div>
@@ -1267,7 +1224,6 @@
           <label><input type="radio" name="m-be" value="fast" onchange="onBackendMode('fast')"><span data-i18n="preset.engine_fast">Précompilé</span><span class="be-note" id="be-fast-note"></span></label>
           <label><input type="radio" name="m-be" value="opt" onchange="onBackendMode('opt')"><span data-i18n="preset.engine_opt">Compilé</span><span class="be-note" id="be-opt-note"></span></label>
           <label><input type="radio" name="m-be" value="custom" onchange="onBackendMode('custom')"><span data-i18n="preset.engine_custom">Personnalisé</span></label>
-          <label id="m-be-exl3" hidden><input type="radio" name="m-be" value="exl3" onchange="onBackendMode('exl3')"><span data-i18n="preset.engine_exl3">ExLlama</span></label>
         </div>
         <div id="be-avail-note" class="be-avail-note" style="display:none"></div>
         <!-- Avertissement moteur non installé : visible et explicite (au lieu d'une
@@ -1289,128 +1245,6 @@
         </div>
       </div>
 
-      <!-- ExLlama (ENGINE=exl3) : remplace les blocs Modèle et Réglages de llama.cpp,
-           masqués par la classe eng-exl3 du modal (voir syncEngineView). -->
-      <div id="m-exl3-row" class="pe-group">
-        <div class="pe-gh" data-i18n="preset.exl3_model_heading">Modèle EXL3</div>
-        <div class="pe-list">
-          <div class="pe-row stack">
-            <span class="pe-row-l" data-i18n="preset.exl3_model_label">Dossier du modèle</span>
-            <span class="pe-selc wide"><select id="s-exl3-model" onchange="onExl3Model()"></select></span>
-          </div>
-          <div class="pe-row stack">
-            <span class="pe-row-l"><span data-i18n="exl3.download_label">Télécharger un modèle</span> <span class="pe-sub" data-i18n="preset.exl3_download_sub">branche d'un dépôt Hugging Face EXL3</span></span>
-            <div class="pe-inpbtn">
-              <input id="s-exl3-dl" class="pe-inp" spellcheck="false" placeholder="https://huggingface.co/turboderp/…/tree/4.0bpw" onkeydown="if(event.key==='Enter')exl3PresetDownload()">
-              <button onclick="exl3PresetDownload()" title="Télécharger" data-i18n="preset.download_button_title" data-i18n-attr="title">↓</button>
-            </div>
-            <div id="s-exl3-dl-note" class="pe-note" style="display:none"></div>
-          </div>
-        </div>
-      </div>
-      <div id="m-exl3-set" class="pe-group">
-        <div class="pe-gh" data-i18n="preset.settings_heading">Réglages</div>
-        <div class="pe-list">
-          <div class="pe-row">
-            <span class="pe-row-l" data-i18n="preset.ctx_label">Contexte</span>
-            <span class="pe-row-c"><input id="s-exl3-ctx" class="pe-val" type="number" min="0" step="1024" placeholder="32768" oninput="cfgWriteKey('CTX', this.value)"><span class="pe-unit">tok</span></span>
-          </div>
-          <div class="pe-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_cache_label">Taille du cache</span><span class="pe-sub" data-i18n="preset.exl3_cache_sub">vide = le contexte ; plus grand pour plusieurs utilisateurs</span></span>
-            <span class="pe-row-c"><input id="s-exl3-cache" class="pe-val" type="number" min="0" step="1024" placeholder="—" oninput="cfgWriteKey('EXL3_CACHE', this.value)"><span class="pe-unit">tok</span></span>
-          </div>
-          <div class="pe-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_cache_mode_label">Précision du cache</span><span class="pe-sub" data-i18n="preset.kv_sub">compresse le contexte</span></span>
-            <span class="pe-row-c"><span class="pe-selc"><select id="s-exl3-cache-mode" onchange="cfgWriteKey('EXL3_CACHE_MODE', this.value)">
-              <option value="FP16">FP16</option>
-              <option value="8,8">8 bits</option>
-              <option value="6,6">6 bits</option>
-              <option value="4,4">4 bits</option>
-            </select></span></span>
-          </div>
-          <div class="pe-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_batch_label">Utilisateurs simultanés</span><span class="pe-sub" data-i18n="preset.exl3_batch_sub">requêtes traitées en même temps</span></span>
-            <span class="pe-row-c"><input id="s-exl3-batch" class="pe-val" type="number" min="1" step="1" placeholder="1" oninput="cfgWriteKey('EXL3_BATCH', this.value)"></span>
-          </div>
-          <div class="pe-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_chunk_label">Lecture du prompt par blocs</span><span class="pe-sub" data-i18n="preset.exl3_chunk_sub">plus grand = lecture plus rapide, plus de VRAM</span></span>
-            <span class="pe-row-c"><span class="pe-selc"><select id="s-exl3-chunk" onchange="cfgWriteKey('EXL3_CHUNK', this.value)">
-              <option value="512">512</option>
-              <option value="1024">1024</option>
-              <option value="2048">2048</option>
-              <option value="4096">4096</option>
-              <option value="8192">8192</option>
-            </select></span><span class="pe-unit">tok</span></span>
-          </div>
-          <div class="pe-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_draft_label">Décodage spéculatif</span><span class="pe-sub" data-i18n="preset.exl3_draft_sub">MTP si le modèle en a une tête</span></span>
-            <span class="pe-row-c"><span class="pe-selc"><select id="s-exl3-draft" onchange="onExl3Draft()">
-              <option value="disabled" data-i18n="preset.exl3_draft_off">désactivé</option>
-              <option value="mtp">MTP</option>
-              <option value="ngram">n-gram</option>
-              <option value="model" data-i18n="preset.exl3_draft_model">modèle brouillon</option>
-            </select></span></span>
-          </div>
-          <div class="pe-row" id="s-exl3-dtok-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_dtok_label">Jetons anticipés</span><span class="pe-sub" data-i18n="preset.exl3_dtok_sub">3 mesuré le meilleur en MTP</span></span>
-            <span class="pe-row-c"><input id="s-exl3-dtok" class="pe-val" type="number" min="1" max="8" step="1" placeholder="3" oninput="cfgWriteKey('EXL3_DRAFT_TOKENS', this.value)"></span>
-          </div>
-          <div class="pe-row" id="s-exl3-dyn-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_dyn_label">MTP adaptatif</span><span class="pe-sub" data-i18n="preset.exl3_dyn_sub">longueur selon le taux d'acceptation, plafond ci-dessus</span></span>
-            <span class="pe-row-c"><label class="pe-switch"><input type="checkbox" id="s-exl3-dyn" onchange="cfgWriteKey('EXL3_DRAFT_DYNAMIC', this.checked ? '1' : ''); syncExl3Rows()"><span class="pe-sl"></span></label></span>
-          </div>
-          <div class="pe-row" id="s-exl3-conf-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_conf_label">Seuil d'acceptation</span><span class="pe-sub" data-i18n="preset.exl3_conf_sub">0,4 par défaut ; plus bas = brouillons plus longs</span></span>
-            <span class="pe-row-c"><input id="s-exl3-conf" class="pe-val" type="number" min="0.05" max="0.95" step="0.05" placeholder="0.4" oninput="cfgWriteKey('EXL3_DRAFT_CONFIDENCE', this.value)"></span>
-          </div>
-          <div class="pe-row" id="s-exl3-hybrid-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_hybrid_label">Accélération des recopies</span><span class="pe-sub" data-i18n="preset.exl3_hybrid_sub">jetons avancés d'un coup sur un passage répété ; vide = non</span></span>
-            <span class="pe-row-c"><input id="s-exl3-hybrid" class="pe-val" type="number" min="0" step="4" placeholder="—" oninput="cfgWriteKey('EXL3_HYBRID', this.value)"><span class="pe-unit">tok</span></span>
-          </div>
-          <div class="pe-row stack" id="s-exl3-dmodel-row">
-            <span class="pe-row-l" data-i18n="preset.exl3_draft_model_label">Modèle brouillon</span>
-            <span class="pe-selc wide"><select id="s-exl3-dmodel" onchange="cfgWriteKey('EXL3_DRAFT_MODEL', this.value)"></select></span>
-          </div>
-          <div class="pe-row">
-            <span class="pe-row-l"><span data-i18n="preset.reasoning_label">Raisonnement</span><span class="pe-sub" data-i18n="preset.reasoning_sub">réflexion étape par étape</span></span>
-            <span class="pe-row-c"><label class="pe-switch"><input type="checkbox" id="s-exl3-reasoning" onchange="onExl3Reasoning(this.checked)"><span class="pe-sl"></span></label></span>
-          </div>
-          <div class="pe-row" id="s-exl3-rbudget-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_rbudget_label">Budget de réflexion</span><span class="pe-sub" data-i18n="preset.exl3_rbudget_sub">vide = illimité</span></span>
-            <span class="pe-row-c"><input id="s-exl3-rbudget" class="pe-val" type="number" min="0" step="256" placeholder="—" oninput="cfgWriteKey('REASONING_BUDGET', this.value)"><span class="pe-unit">tok</span></span>
-          </div>
-          <div class="pe-row" id="s-exl3-vision-row">
-            <span class="pe-row-l"><span data-i18n="preset.vision_label">Vision</span><span class="pe-sub" id="s-exl3-vision-sub" data-i18n="preset.exl3_vision_sub">lecture des images</span></span>
-            <span class="pe-row-c"><label class="pe-switch"><input type="checkbox" id="s-exl3-vision" onchange="cfgWriteKey('EXL3_VISION', this.checked ? '1' : ''); syncExl3Rows()"><span class="pe-sl"></span></label></span>
-          </div>
-          <div class="pe-row" id="s-exl3-vdev-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_vdev_label">Encodeur d'images sur</span><span class="pe-sub" data-i18n="preset.exl3_vdev_sub">une carte libre évite de saturer la principale</span></span>
-            <span class="pe-row-c"><span class="pe-selc"><select id="s-exl3-vdev" onchange="cfgWriteKey('EXL3_VISION_DEVICE', this.value)"></select></span></span>
-          </div>
-        </div>
-      </div>
-      <div id="m-exl3-gpu" class="pe-group" hidden>
-        <div class="pe-gh" data-i18n="preset.gpu_heading">Cartes graphiques</div>
-        <div class="pe-list" id="s-exl3-gpus"></div>
-        <div class="pe-list" style="margin-top:8px">
-          <div class="pe-row" id="s-exl3-tp-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_tp_label">Parallélisme de tenseurs</span><span class="pe-sub" data-i18n="preset.exl3_tp_sub">les cartes calculent chaque couche ensemble : plus rapide</span></span>
-            <span class="pe-row-c"><label class="pe-switch"><input type="checkbox" id="s-exl3-tp" onchange="cfgWriteKey('EXL3_TP', this.checked ? '1' : ''); syncExl3Rows()"><span class="pe-sl"></span></label></span>
-          </div>
-          <div class="pe-row" id="s-exl3-tpb-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_tpb_label">Échanges entre cartes</span><span class="pe-sub" data-i18n="preset.exl3_tpb_sub">NCCL demande le P2P entre les cartes</span></span>
-            <span class="pe-row-c"><span class="pe-selc"><select id="s-exl3-tpb" onchange="cfgWriteKey('EXL3_TP_BACKEND', this.value)">
-              <option value="" data-i18n="preset.exl3_tpb_native">natif</option>
-              <option value="nccl">NCCL</option>
-            </select></span></span>
-          </div>
-          <div class="pe-row" id="s-exl3-reserve-row">
-            <span class="pe-row-l"><span data-i18n="preset.exl3_reserve_label">VRAM laissée libre</span><span class="pe-sub" data-i18n="preset.exl3_reserve_sub">par carte, en répartition automatique</span></span>
-            <span class="pe-row-c"><input id="s-exl3-reserve" class="pe-val" type="number" min="0" step="128" placeholder="96" oninput="cfgWriteKey('EXL3_RESERVE', this.value)"><span class="pe-unit" data-i18n="exl3.unit_mb">Mo</span></span>
-          </div>
-        </div>
-        <div class="pe-note" data-i18n="preset.exl3_split_note">Répartition vide = automatique. Sinon, Go de poids par carte : charger la plus petite au maximum sans la saturer.</div>
-      </div>
 
       <div id="m-model-row" style="display:none;flex-direction:column;gap:26px">
         <div class="pe-group">

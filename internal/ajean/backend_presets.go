@@ -297,18 +297,6 @@ func applyPresetFile(target string) error {
 		return err
 	}
 	next := parseEnv(string(src))
-	// Un preset ExLlama choisit ses cartes par EXL3_GPUS. Une valeur
-	// CUDA_VISIBLE_DEVICES laissée par la 0.18.13 y est reprise, mais ne doit pas
-	// remplacer le réglage machine : il serait ensuite reporté sur les presets
-	// llama.cpp, avec un ordre de cartes qui n'est pas le leur.
-	if isExl3Config(next) {
-		if v, ok := next["CUDA_VISIBLE_DEVICES"]; ok {
-			if strings.TrimSpace(next["EXL3_GPUS"]) == "" {
-				next["EXL3_GPUS"] = v
-			}
-			delete(next, "CUDA_VISIBLE_DEVICES")
-		}
-	}
 	// Ré-applique les réglages appareil par-dessus le preset — sauf ceux que le
 	// preset revendique explicitement (softPreservedKeys).
 	cur := ReadConfig()

@@ -57,7 +57,7 @@ func runBench(nPrompt, nPredict int) (*benchResult, error) {
 			return nil, fmt.Errorf("%s", why)
 		}
 		return runBenchStream(nPrompt, nPredict)
-	} else if isMoeConfig(cfg) || isExl3Config(cfg) {
+	} else if isMoeConfig(cfg) {
 		// moteur MoE intégré : il garde la conversation en cache malgré
 		// cache_prompt:false, la marque unique en tête (runBenchStream) l'en empêche
 		if !healthCheck() {
@@ -209,12 +209,6 @@ func benchModelKey(cfg map[string]string) string {
 	if isMoeConfig(cfg) {
 		if c := strings.TrimSpace(cfg["MOE_CONFIG"]); c != "" {
 			return "moe:" + filepath.Base(c)
-		}
-		return ""
-	}
-	if isExl3Config(cfg) {
-		if m := strings.TrimSpace(cfg["EXL3_MODEL"]); m != "" {
-			return "exl3:" + filepath.Base(m)
 		}
 		return ""
 	}

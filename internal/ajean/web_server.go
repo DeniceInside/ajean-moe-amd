@@ -224,10 +224,6 @@ func newWebMux() *http.ServeMux {
 	api("/api/moe", handleMoe)                                           // moteur MoE : machine, catalogue figé, recommandation, modèles installés
 	api("/api/moe/install", handleMoeInstall)                            // job : paquet figé + installeur du moteur + preset (suivi par /api/llamacpp/job)
 	api("/api/moe/settings", handleMoeSettings)
-	api("/api/exl3", handleExl3)                    // moteur ExLlama : machine, version installée (?check=1 : dernière version), modèles EXL3
-	api("/api/exl3/install", handleExl3Install)     // job : installation ({latest:false}, commit validé) ou mise à jour ({latest:true})
-	api("/api/exl3/uninstall", handleExl3Uninstall) // retire le moteur (garde les modèles)
-	api("/api/exl3/download", handleExl3Download)   // job : télécharge une branche d'un dépôt EXL3 Hugging Face dans models/exl3                          // réglages d'un modèle MoE installé (relance s'il est actif)
 	api("/api/presets", handlePresets)
 	api("/api/presets/order", handlePresetsOrder)
 	api("/api/preset", handlePreset)

@@ -134,7 +134,7 @@ async function openItem(kind, key){
   if(engineRow) engineRow.style.display = kind === 'preset' ? '' : 'none';
   const runRow = document.getElementById('m-run-row');
   if(runRow) runRow.style.display = kind === 'preset' ? '' : 'none';
-  document.getElementById('modal').classList.remove('run-cloud', 'eng-exl3');
+  document.getElementById('modal').classList.remove('run-cloud');
   if(kind === 'preset'){
     modelRow.style.display = 'flex';
     settingsRow.style.display = 'flex';
@@ -194,7 +194,7 @@ async function openItem(kind, key){
     populateSettings();
     syncRunMode();
     attachDownload();                      // téléchargement encore en cours côté serveur ?
-    await Promise.all([loadExl3(), populateModelPicker(), populateMmproj(), populateSpecDraft(), populateDlDirs()]);
+    await Promise.all([populateModelPicker(), populateMmproj(), populateSpecDraft(), populateDlDirs()]);
     await populateBackend();
     if(seq !== openSeq) return;
   }
@@ -470,7 +470,7 @@ function renderBackendAvailability(){
 function showBackendWarn(mode){
   const warn = document.getElementById('be-warn'); if(!warn) return;
   document.getElementById('be-warn-text').textContent =
-    t(mode === 'fast' ? 'preset.engine_warn_fast' : mode === 'exl3' ? 'preset.engine_warn_exl3' : 'preset.engine_warn_opt');
+    t(mode === 'fast' ? 'preset.engine_warn_fast' : 'preset.engine_warn_opt');
   warn.dataset.mode = mode;
   warn.style.display = '';
 }
@@ -484,7 +484,6 @@ function beWarnInstall(){
   const warn = document.getElementById('be-warn');
   const mode = (warn && warn.dataset.mode) || 'fast';
   if(typeof closeModal === 'function') closeModal();
-  if(mode === 'exl3'){ openExl3(); return; }
   const side = document.getElementById('side');
   if(side && !side.classList.contains('open') && typeof toggleSide === 'function') toggleSide();
   const det = document.getElementById('lc-details');
@@ -509,8 +508,7 @@ async function populateBackend(){
   // Sélectionne l'option correspondant au BIN actuel du preset.
   const cur = currentBinInTextarea();
   let mode = 'custom';
-  if(cfgReadKey('ENGINE') === 'exl3') mode = 'exl3';
-  else if(sameBinPath(cur, beFastPath) || underDir(cur, beFastDir)) mode = 'fast';
+  if(sameBinPath(cur, beFastPath) || underDir(cur, beFastDir)) mode = 'fast';
   else if(sameBinPath(cur, beOptPath)) mode = 'opt';
   const radio = document.querySelector('input[name=m-be][value='+mode+']');
   if(radio) radio.checked = true;
@@ -519,7 +517,6 @@ async function populateBackend(){
   hideBackendWarn();
   toggleBackendCustom(mode);
   if(mode === 'custom') document.getElementById('m-backend-path').value = cur;
-  syncEngineView();
   // Attendu (et non lancé dans le vide) : la liste des GPU change la hauteur du
   // bloc « moteur ». Sans ce await, elle arrivait APRÈS la levée du voile de
   // chargement et on voyait le bloc bouger tout seul.
@@ -533,7 +530,7 @@ function onBackendMode(mode){
   // ne démarrerait pas) et de le signaler par une notif fugace, on montre un
   // avertissement franc avec la marche à suivre, et on remet le curseur sur le
   // moteur réellement en place.
-  if((mode === 'fast' && !beFastPath) || (mode === 'opt' && !beOptPath) || (mode === 'exl3' && !exl3Installed())){
+  if((mode === 'fast' && !beFastPath) || (mode === 'opt' && !beOptPath)){
     showBackendWarn(mode);
     const back = document.querySelector('input[name=m-be][value='+beCurrentMode+']');
     if(back) back.checked = true;
@@ -542,14 +539,6 @@ function onBackendMode(mode){
   }
   hideBackendWarn();
   toggleBackendCustom(mode);
-  if(mode === 'exl3'){
-    beCurrentMode = 'exl3';
-    exl3Select();
-    toast(t('preset.engine_exl3_selected'));
-    return;
-  }
-  // retour vers llama.cpp : le preset ne désigne plus ExLlama
-  if(cfgReadKey('ENGINE') === 'exl3'){ cfgWriteKey('ENGINE', ''); syncEngineView(); }
   if(mode === 'fast'){
     setBinInTextarea(beFastPath); beCurrentMode = 'fast'; toast(t('models.backend.engine_precompiled'));
     loadGpuDevices();
