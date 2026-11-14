@@ -25,6 +25,11 @@ type buildPlan struct {
 	cudaArch string // ex. "120" ou "86;89" (vide => détection native par CMake)
 	cudaCXX  string // chemin de nvcc quand backend == cuda
 	cudaVer  string // version du toolkit retenu, ex. "12.8" (vide si inconnue)
+	// rocmRoot : racine du toolkit ROCm retenu pour un backend=hip (/opt/rocm,
+	// /opt/rocm-6.4, ROCM_PATH…). Vide = aucune racine trouvée. CMake découvre
+	// ROCm en appelant « hipconfig » en nu et via la variable ROCM_PATH : sans la
+	// racine posée explicitement, le configure HIP échoue (backend_rocm.go).
+	rocmRoot string
 	// cudaArchUnsupported : le GPU détecté est plus vieux que ce que le SEUL
 	// toolkit CUDA installé sait compiler (typiquement un GPU Pascal/Volta avec
 	// CUDA 13, qui a supprimé ces archs). Le build CUDA est voué à casser sur le

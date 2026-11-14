@@ -129,6 +129,12 @@ func setLibraryPath(dir string) {
 func libraryPathValue(dir string) (string, string) {
 	parts := []string{dir}
 	parts = append(parts, cudaLibDirs()...)
+	// ROCm, même logique que CUDA ci-dessus : un llama-server compilé en HIP lie
+	// libamdhip64, librocblas et libhipblas, qui vivent dans <racine ROCm>/lib.
+	// Le dossier est enregistré dans /etc/ld.so.conf.d sur les paquets ROCm
+	// standard, pas sur les installations TheRock/wheels ni une racine démontée :
+	// sans lui le moteur meurt à la charge des bibliothèques, sans message.
+	parts = append(parts, rocmLdLibDirs(rocmRoot())...)
 	envVar := "LD_LIBRARY_PATH"
 	if runtime.GOOS == "darwin" {
 		envVar = "DYLD_LIBRARY_PATH"

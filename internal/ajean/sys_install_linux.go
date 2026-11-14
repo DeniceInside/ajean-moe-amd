@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 // sys_install_linux.go — la part systemd de l'installation. Le parcours commun
@@ -26,10 +28,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=%s
-WorkingDirectory=%s
-ExecStart=%s
-Restart=on-failure
+User=%[1]s
+WorkingDirectory=%[2]s
+ExecStart=%[3]s
+%[4]sRestart=on-failure
 RestartSec=3
 # llama-server ignore SIGTERM tant qu'une génération est en cours : avec le
 # défaut systemd (90 s), chaque bascule de preset en plein flux restait bloquée
@@ -56,21 +58,79 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=%s
-WorkingDirectory=%s
-ExecStart=%s
-Restart=always
+User=%[2]s
+WorkingDirectory=%[3]s
+ExecStart=%[4]s
+%[5]sRestart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 `
 
+// systemdServicePath est le PATH que systemd donne à une unité quand le fichier
+// d'unité n'en pose pas : celui de DefaultEnvironment, défini à la compilation de
+// systemd. On le recopie en dur pour le COMPLÉTER — un Environment=PATH remplace
+// la valeur par défaut, jamais ne s'y ajoute, et un ajean qui ne trouve plus
+// git, cmake ni node depuis son service est plus cassé qu'avant.
+const systemdServicePath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+
+// rocmServiceEnv rend le bloc d'environnement d'une unité systemd pour ROCm :
+// les variables qu'un moteur llama.cpp compilé en HIP exige, et que la machine
+// ne fournit nulle part dans le contexte d'un service.
+//
+// Le problème, mesuré sur cette machine AMD (ROCm 7.2, CMake 4.5) : ROCm se pose
+// dans /opt/rocm, absent du PATH d'une session COMME du PATH d'un service
+// (systemctl show ajean-engine -p Environment → vide). Conséquences réelles :
+//
+//   - la compilation du moteur : CMakeDetermineHIPCompiler de CMake appelle
+//     « hipconfig » EN NU trois fois (--platform, --rocmpath, --hipclangpath) pour
+//     trouver la plateforme, la racine et le compilateur HIP. Sans /opt/rocm/bin
+//     au PATH, hipconfig lui échappe : « Failed to find HIP root directory », ou
+//     pire un clang du système retenu comme compilateur HIP, qui ne connaît pas
+//     le target amdgcn. Avec /opt/rocm/bin au PATH, CMake découvre
+//     /opt/rocm/lib/llvm/bin/clang++ tout seul et le build aboutit (vérifié).
+//   - la télémétrie GPU de l'UI : amd-smi et rocm-smi vivent dans /opt/rocm/bin
+//     (ici : aucun des deux dans le PATH du service) → la carte n'apparaît pas.
+//   - ROCM_PATH, la variable que lit ggml-hip/CMakeLists.txt pour
+//     CMAKE_PREFIX_PATH → find_package(hip REQUIRED) : posée, elle couvre les
+//     racines non standard (/opt/rocm-6.4, une racine hors /opt).
+//   - LD_LIBRARY_PATH : /opt/rocm/lib est souvent enregistré dans
+//     /etc/ld.so.conf.d (ici oui), mais pas sur toutes les installations (wheels
+//     TheRock, racine démontée) : sans lui, le moteur meurt à la charge de
+//     libamdhip64/librocblas.
+//
+// Retourne "" quand aucune racine ROCm n'existe : on n'arrose pas d'Environment=
+// les unités d'une machine NVIDIA, Intel ou Apple.
+func rocmServiceEnv(root string) string {
+	if root == "" {
+		return ""
+	}
+	var dirs []string
+	if d := filepath.Join(root, "bin"); isDir(d) {
+		dirs = append(dirs, d)
+	}
+	if d := rocmLlvmBinLocal(root); d != "" {
+		dirs = append(dirs, d)
+	}
+	path := systemdServicePath
+	if len(dirs) > 0 {
+		path = strings.Join(dirs, ":") + ":" + path
+	}
+	out := "Environment=PATH=" + path + "\n"
+	out += "Environment=ROCM_PATH=" + root + "\n"
+	if libs := rocmLdLibDirs(root); len(libs) > 0 {
+		out += "Environment=LD_LIBRARY_PATH=" + strings.Join(libs, ":") + "\n"
+	}
+	return out
+}
+
 func installServices(targetUser, ajeanHome string) error {
 	svc, exe := serviceName(), installedExePath()
+	env := rocmServiceEnv(rocmRoot())
 	units := map[string]string{
-		svc:        fmt.Sprintf(engineUnitTemplate, targetUser, ajeanHome, exe+" serve"),
-		uiUnitName: fmt.Sprintf(uiUnitTemplate, svc, targetUser, ajeanHome, exe+" web"),
+		svc:        fmt.Sprintf(engineUnitTemplate, targetUser, ajeanHome, exe+" serve", env),
+		uiUnitName: fmt.Sprintf(uiUnitTemplate, svc, targetUser, ajeanHome, exe+" web", env),
 	}
 	for name, body := range units {
 		path := "/etc/systemd/system/" + name + ".service"

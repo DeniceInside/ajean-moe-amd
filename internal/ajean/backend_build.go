@@ -201,14 +201,32 @@ func (b *buildEnv) prependPath(dir string) {
 	if runtime.GOOS == "windows" {
 		name = "Path"
 	}
+	b.prependPathVar(name, dir)
+}
+
+// prependPathVar place dirs en tête d'une variable de type liste de chemins
+// (PATH, LD_LIBRARY_PATH, DYLD_LIBRARY_PATH…), en repartant de la valeur courante
+// du process si la variable n'a pas encore été posée. Une variable déjà posée
+// est complétée, jamais écrasée : plusieurs fournisseurs (CUDA, ROCm, MSVC) posent
+// chacun leurs dossiers dans le même buildEnv.
+func (b *buildEnv) prependPathVar(name string, dirs ...string) {
+	var keep []string
+	for _, d := range dirs {
+		if d != "" {
+			keep = append(keep, d)
+		}
+	}
+	if len(keep) == 0 {
+		return
+	}
 	cur, ok := b.val[envKeyCanon(name)]
 	if !ok {
-		cur = os.Getenv("PATH")
+		cur = os.Getenv(name)
 	}
 	if cur != "" {
-		b.set(name, dir+string(os.PathListSeparator)+cur)
+		b.set(name, strings.Join(keep, string(os.PathListSeparator))+string(os.PathListSeparator)+cur)
 	} else {
-		b.set(name, dir)
+		b.set(name, strings.Join(keep, string(os.PathListSeparator)))
 	}
 }
 
@@ -380,6 +398,7 @@ func buildPlanFor(force string) buildPlan {
 	}
 	if force == "hip" {
 		p.backend = "hip"
+		p.rocmRoot = rocmRoot()
 		p.flags = append(p.flags, "-DGGML_HIP=ON")
 		return p
 	}
@@ -399,6 +418,7 @@ func buildPlanFor(force string) buildPlan {
 	// AMD ROCm / HIP.
 	if hasTool("hipcc") || isDir("/opt/rocm") {
 		p.backend = "hip"
+		p.rocmRoot = rocmRoot()
 		p.flags = append(p.flags, "-DGGML_HIP=ON")
 		return p
 	}
@@ -522,6 +542,15 @@ func buildLlamacpp(repo string, p buildPlan, clean bool) error {
 				return err
 			}
 		}
+	}
+	// HIP / ROCm. La racine ROCm n'est dans AUCUN PATH standard — ni celui d'une
+	// session, ni celui d'un service systemd. Or CMake la découvre en appelant
+	// « hipconfig » en nu (trois fois : --platform, --rocmpath, --hipclangpath)
+	// et ggml-hip la lit dans la variable ROCM_PATH. Sans ces variables posées,
+	// le configure HIP échoue alors que ROCm est bien installé : c'est le cas de
+	// toute installation systemd sur une machine AMD. Voir backend_rocm.go.
+	if p.backend == "hip" && !rocmBuildEnv(be, p.rocmRoot) {
+		emitBuildLine("aucune racine ROCm trouvée : le build HIP échouera — installe le toolkit ROCm complet (rocm-dev, hip-dev, rocblas-dev), ou lance avec ROCM_PATH=/chemin/rocm")
 	}
 	env := be.serialize()
 
@@ -657,6 +686,16 @@ func hintMissingBuildDep(p buildPlan, cfgLog string) {
 		fmt.Printf("            Cause la plus fréquente : ton GPU est plus ancien que ce que ce CUDA supporte.\n")
 		fmt.Printf("            CUDA 13 a supprimé Maxwell (GTX 900), Pascal (GTX 10xx) et Volta ; ils exigent un CUDA 12.x.\n")
 		fmt.Printf("            Installe le CUDA Toolkit 12.x (par ex. 12.8) puis relance %s.\n", bold("ajean llamacpp install"))
+	}
+	// Linux/HIP : le configure ne trouve ni la racine ROCm, ni ses paquets CMake
+	// (hip, hipblas, rocblas). C'est LA cause d'échec d'un build HIP sur une
+	// machine AMD bien équipée — ROCm est là, mais invisible (ni au PATH, ni à
+	// ROCM_PATH). On la nomme avec les chemins réels de la machine.
+	if p.backend == "hip" && (strings.Contains(log, "\"hip\"") ||
+		strings.Contains(log, "hip-config") || strings.Contains(log, "hipblas") ||
+		strings.Contains(log, "rocblas") || strings.Contains(log, "HIP root") ||
+		strings.Contains(log, "rocm_agent_enumerator") || strings.Contains(log, "amdgpu")) {
+		hipRootHint(p.rocmRoot)
 	}
 	if p.backend == "vulkan" && strings.Contains(log, "SPIRV-Headers") {
 		fmt.Printf("\n%s dépendance manquante pour le backend %s : les en-têtes SPIR-V (paquet « SPIRV-Headers ») sont introuvables.\n",
@@ -1405,6 +1444,20 @@ func printPlan(p buildPlan, repo string) {
 	fmt.Printf("  backend  : %s\n", planLabel(p))
 	fmt.Printf("  jobs     : %d\n", p.jobs)
 	fmt.Printf("  flags    : %s\n", dim(strings.Join(p.flags, " ")))
+	if p.backend == "hip" {
+		root := p.rocmRoot
+		if root == "" {
+			root = "introuvable"
+		}
+		ver := rocmVersion(p.rocmRoot)
+		if ver != "" {
+			ver = ", ROCm " + ver
+		}
+		fmt.Printf("  ROCm     : %s%s\n", bold(root), ver)
+		if cc := rocmHipCompiler(p.rocmRoot); cc != "" {
+			fmt.Printf("  clang HIP: %s\n", dim(cc))
+		}
+	}
 	for _, l := range cpuPlanHints(p) {
 		fmt.Printf("  %s %s\n", yellow("[GPU]"), l)
 	}
