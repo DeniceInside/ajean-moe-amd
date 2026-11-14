@@ -176,6 +176,23 @@ A preset does not have to run on this machine:
 | **External API** | any OpenAI-compatible endpoint |
 | **GPU Cloud** | a GPU rented on [Modal](https://modal.com) (T4 to B200), deployed by AJEAN, billed by use, asleep when idle |
 
+**Waking a network PC (Wake on LAN).** An External API preset often points at another computer on
+the home or office network, the one serving the engine — and it is sometimes powered off. Tick
+**Wake up this PC** in the External API modal and give it the machine's MAC (`ajean wol list`
+suggests them), and the first message of a powered-off session sends the magic packet, waits for the
+machine to boot and the engine to load, then replays the request: the chat answers, you resend
+nothing. A health check never wakes a machine. The wake-up phase shows in the status bubble and in
+the reply bubble. `ajean wol check <ip>` lists the three things to enable on the machine to be woken
+(BIOS, driver, full shutdown) — that is where Wake on LAN fails, and AJEAN cannot set them remotely.
+
+The modal's **Test connection** button helps with this, without ever waking a machine on its own:
+on an unreachable machine it says it may be powered off and offers the magic packet; on a closed
+port it says the machine is on and the engine is what must be started. And as soon as the machine has **answered** — test succeeded, port closed, or an error reply — it
+is on and its MAC is readable in the ARP table: it gets prefilled in the field, no need to look it
+up. A MAC you typed yourself is never replaced, and no magic packet is ever offered for an address
+off the network (a local address, or an online service: the ARP table there only holds your
+gateway).
+
 ### Engine
 
 The **Engine** section installs and updates llama.cpp in three flavors, chosen per preset:
@@ -249,6 +266,9 @@ Engine (ajean-engine)
   vram | gpu [index...]         GPU memory / choose the GPUs (gpu all = all)
   set-api-key [key]             protect the model's API
   network [on|off|status]       OpenAI endpoint on the local network
+  wol [<MAC>] [-ip <ip>]        wake a network PC with a magic packet (Wake on LAN)
+  wol list                      the MACs seen on the network, to paste into an external preset
+  wol check [ip]                what to enable on the PC to wake (BIOS, driver)
 
 Interface (ajean-ui)
   ui [start|stop|restart|status]

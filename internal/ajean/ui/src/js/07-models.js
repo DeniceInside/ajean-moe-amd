@@ -1047,18 +1047,62 @@ function syncRunMode(){
     document.getElementById('s-ext-ctx').value = cfgReadKey('CTX');
     document.getElementById('s-ext-vision').checked = cfgReadKey('EXTERNAL_VISION') === '1';
     document.getElementById('s-ext-status').textContent = '';
+    // Wake on LAN : le réveil du PC du LAN qui sert l'API (backend_wol.go).
+    const wolOn = cfgReadKey('WOL') === '1';
+    document.getElementById('s-ext-wol').checked = wolOn;
+    document.getElementById('s-ext-wol-mac').value = cfgReadKey('WOL_MAC');
+    document.getElementById('s-ext-wol-wait').value = cfgReadKey('WOL_WAIT');
+    document.getElementById('s-ext-wol-status').textContent = '';
+    setWOLBody(wolOn);
   }
 }
+// Le bloc Wake on LAN s'ouvre avec l'interrupteur : une MAC et une attente.
+function setWOLBody(on){
+  const b = document.getElementById('m-wol-body');
+  if(b) b.style.display = on ? '' : 'none';
+}
+// Envoi manuel du paquet magique : le seul chemin qui réveille, et il part sur
+// demande explicite. Le corps de la requête, lui, réveille tout seul (voir doLLM).
+async function sendWOLPacket(){
+  const st = document.getElementById('s-ext-wol-status');
+  const mac = cfgReadKey('WOL_MAC'), ip = document.getElementById('s-ext-wol-check').value.trim();
+  if(!mac){ st.textContent = t('wol.mac_required'); return; }
+  st.textContent = t('wol.sending');
+  try{
+    const r = await jpost('/api/preset/external/wol', {mac, ip, url: cfgReadKey('EXTERNAL_URL'), port: cfgReadKey('WOL_PORT'), wait: cfgReadKey('WOL_WAIT')});
+    st.textContent = r.ok ? '✓ '+(r.detail || t('wol.sent')) : '⚠ '+(r.error || t('wol.send_failed'));
+  }catch(e){ st.textContent = '⚠ '+t('wol.send_failed'); }
+}
 // Test d'un preset API externe : une complétion d'un jeton vers l'API saisie.
+// Il porte le WOL du preset, pour NOMMER la cause : sur une cible de LAN injoignable,
+// « injoignable » seul ne dit pas que la machine est éteinte. Le test ne réveille
+// JAMAIS de son propre chef — il renvoie la proposition, le clic sur le bouton du
+// paquet magique l'envoie. (Le corps de la requête de chat, lui, réveille seul.)
 async function testExternalPreset(){
   const st = document.getElementById('s-ext-status');
   const b = {id: editingKey || '', url: cfgReadKey('EXTERNAL_URL'), model: cfgReadKey('EXTERNAL_MODEL'),
-             key: cfgReadKey('EXTERNAL_KEY'), keyTouched: true};
+             key: cfgReadKey('EXTERNAL_KEY'), keyTouched: true,
+             wol: cfgReadKey('WOL') === '1', wol_mac: cfgReadKey('WOL_MAC')};
   if(!b.url || !b.model){ st.textContent = t('external.url_model_required'); return; }
   st.textContent = t('external.testing');
   try{
     const r = await jpost('/api/preset/external/test', b);
-    st.textContent = r.ok ? '✓ '+t('external.test_ok') : '⚠ '+(r.error || t('external.test_failed'));
+    // Test réussi, port refusé, réponse HTTP en erreur : la machine a RÉPONDU, donc
+    // le serveur a pu lire sa MAC dans la table ARP. On la préremplit (le champ et
+    // la clé), et on le dit. Jamais sur une MAC déjà saisie : ce que l'utilisateur a
+    // lu sur la machine reste ce qu'il y a de plus sûr.
+    const learned = r.wol_mac ? ' · '+t('wol.mac_learned').replace('{mac}', r.wol_mac) : '';
+    if(r.wol_mac){
+      const m = document.getElementById('s-ext-wol-mac');
+      if(m){ m.value = r.wol_mac; }
+      cfgWriteKey('WOL_MAC', r.wol_mac);
+    }
+    if(r.ok){ return st.textContent = '✓ '+t('external.test_ok')+learned; }
+    // Réveil proposé (machine injoignable) : on rappelle le bouton, la modale est
+    // ouverte sur le bloc WOL. Pas de MAC apprise dans ce cas : une machine
+    // injoignable n'est pas dans la table ARP.
+    if(r.wol){ return st.textContent = '⚠ '+(r.error || t('wol.test_wake')); }
+    st.textContent = '⚠ '+(r.error || t('external.test_failed'))+learned;
   }catch(e){ st.textContent = '⚠ '+t('external.test_failed'); }
 }
 // Comptes Modal = profils de la CLI sur la machine AJEAN. Vide = profil actif.

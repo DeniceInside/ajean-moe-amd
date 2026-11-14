@@ -472,9 +472,13 @@ func cloudEndpoint(cfg map[string]string) chatEndpoint {
 // (llama-server répond 503 « Loading model » tant que le modèle charge).
 func doLLM(ctx context.Context, req *http.Request, body []byte, ep chatEndpoint) (*http.Response, error) {
 	// Vu par le pré-chauffage de prompt (llm_prewarm.go) : une génération occupe
-	// le moteur, il ne faut pas s'insérer devant elle.
+	// le moteur, il ne faut pas s'insérer devant elle. Comptée dès ici, y compris
+	// pour un preset WOL : le réveil et la requête qui suit occupent le moteur.
 	llmInFlight.Add(1)
 	defer llmInFlight.Add(-1)
+	if ep.WOL.MAC != "" {
+		return wolLLM(ctx, req, body, ep)
+	}
 	if !ep.Cloud {
 		return http.DefaultClient.Do(req)
 	}
